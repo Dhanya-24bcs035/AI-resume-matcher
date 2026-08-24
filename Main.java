@@ -5,7 +5,6 @@ import com.sun.net.httpserver.HttpServer;
 import java.io.ByteArrayInputStream;
 import java.io.ByteArrayOutputStream;
 import java.io.IOException;
-import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
@@ -18,17 +17,19 @@ import java.util.zip.InflaterInputStream;
 
 /**
  * ============================================================
- *  AI RESUME MATCHER — ENHANCED EDITION
+ *  AI RESUME MATCHER — MULTI-FILE & SKILL WEIGHTING EDITION
  * ============================================================
  * Single-file Java web application with:
- *  - Direct PDF & TXT File Upload engine (Pure Java PDF text extraction)
- *  - Interactive Side-by-Side Candidate Skill Matrix
+ *  - Interactive Multi-File Queue Uploader (select files in batches or drag & drop multiple PDFs)
+ *  - Pure Java PDF Text Extractor (using InflaterInputStream)
+ *  - Dynamic Skill Priority Weighting Controls
+ *  - Categorized Match Tier Badging (Top Contender, Strong Candidate, Low Match)
+ *  - Technical Category Fit Ratings (Backend, Cloud/DevOps, Database Fit)
+ *  - Side-by-Side Candidate Skill Comparison Matrix
  *  - Smart Technical Interview Probe Question Generator
- *  - Candidate Seniority Classification Badges
- *  - HR Shortlist Report Exporter
- *  - Modern Dark Glassmorphism Web Dashboard
+ *  - HR Shortlist Executive Summary Exporter
  *
- * Built using ONLY Java's built-in packages — zero dependencies!
+ * Built using ONLY Java's built-in packages — zero external dependencies!
  * ============================================================
  */
 public class Main {
@@ -96,12 +97,19 @@ public class Main {
             List<Candidate> candidates = new ArrayList<>();
             String jobTitle = "Backend Java Developer";
             String jobDescription = "";
+            List<String> weightedSkills = new ArrayList<>();
 
             if (contentType != null && contentType.toLowerCase().contains("multipart/form-data")) {
                 MultipartParser.ParseResult parsed = MultipartParser.parse(exchange, contentType);
                 jobTitle = parsed.getFormFields().getOrDefault("jobTitle", "Backend Java Developer");
                 jobDescription = parsed.getFormFields().getOrDefault("jobDescription", "");
                 
+                String weightsStr = parsed.getFormFields().getOrDefault("prioritySkills", "");
+                if (!weightsStr.isBlank()) {
+                    weightedSkills = Arrays.stream(weightsStr.split(","))
+                            .map(String::trim).filter(s -> !s.isBlank()).collect(Collectors.toList());
+                }
+
                 String pastedResumes = parsed.getFormFields().getOrDefault("resumesBlob", "");
                 candidates.addAll(parseResumesBlob(pastedResumes));
                 candidates.addAll(parsed.getCandidatesFromFiles());
@@ -121,7 +129,7 @@ public class Main {
                 html = HtmlPages.errorPage("Please provide a job description and upload at least one PDF/TXT resume or paste candidate text.");
             } else {
                 ResumeMatcherEngine engine = new ResumeMatcherEngine();
-                List<MatchResult> results = engine.rankCandidates(job, candidates);
+                List<MatchResult> results = engine.rankCandidates(job, candidates, weightedSkills);
                 List<String> topSkills = engine.extractTopSkills(jobDescription);
                 html = HtmlPages.resultsPage(job, results, topSkills);
             }
@@ -129,10 +137,6 @@ public class Main {
             sendHtml(exchange, 200, html);
         }
     }
-
-    // ============================================================
-    //  HELPERS
-    // ============================================================
 
     private static void sendHtml(HttpExchange exchange, int statusCode, String html) throws IOException {
         byte[] bytes = html.getBytes(StandardCharsets.UTF_8);
@@ -329,7 +333,6 @@ class PdfTextExtractor {
 
             byte[] streamData = Arrays.copyOfRange(pdf, streamStart, endPos);
             
-            // Check if stream is Flate encoded
             int dictStart = Math.max(0, pos - 300);
             String dictStr = pdfStr.substring(dictStart, pos);
             if (dictStr.contains("/FlateDecode")) {
@@ -470,25 +473,30 @@ class HtmlPages {
             font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
             margin: 0; padding: 40px 20px;
           }
-          .container { max-width: 960px; margin: 0 auto; }
+          .container { max-width: 980px; margin: 0 auto; }
           .header-box { text-align: center; margin-bottom: 30px; }
-          h1 { font-size: 32px; font-weight: 800; background: linear-gradient(135deg, #ff6a3d, #ff9d76); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+          h1 { font-size: 34px; font-weight: 800; background: linear-gradient(135deg, #ff6a3d, #ff9d76); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
           p.subtitle { color: var(--muted); font-size: 15px; margin-top: 0; }
           
-          /* Tabs */
           .tab-nav { display: flex; gap: 10px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
           .tab-btn { background: none; border: none; color: var(--muted); padding: 12px 18px; font-size: 15px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
           .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
 
-          /* Upload Dropzone */
+          /* File Queue Container */
           .dropzone {
-            border: 2px dashed var(--accent); background: rgba(255, 106, 61, 0.05);
-            border-radius: 12px; padding: 30px; text-align: center; cursor: pointer; transition: background 0.2s;
-            margin-bottom: 20px;
+            border: 2px dashed var(--accent); background: rgba(255, 106, 61, 0.04);
+            border-radius: 12px; padding: 24px; text-align: center; cursor: pointer; transition: background 0.2s;
+            margin-bottom: 15px;
           }
-          .dropzone:hover { background: rgba(255, 106, 61, 0.1); }
-          .dropzone input[type=file] { display: none; }
-          .file-list { margin-top: 10px; font-size: 13px; color: var(--good); }
+          .dropzone:hover { background: rgba(255, 106, 61, 0.08); }
+          .file-queue { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 15px; }
+          .file-card {
+            background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
+            padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; font-size: 13px;
+          }
+          .file-card .fname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
+          .file-card .fsize { color: var(--muted); font-size: 11px; }
+          .btn-remove { background: none; border: none; color: var(--danger); font-weight: bold; cursor: pointer; font-size: 14px; padding: 2px 6px; }
 
           label { display:block; font-weight:600; margin: 18px 0 6px; font-size: 14px; }
           input[type=text], textarea {
@@ -496,7 +504,7 @@ class HtmlPages {
             border: 1px solid var(--border); border-radius: 8px;
             padding: 12px; font-size: 14px; font-family: inherit; resize: vertical;
           }
-          textarea { min-height: 120px; line-height: 1.5; }
+          textarea { min-height: 110px; line-height: 1.5; }
           .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
           
           button.btn-primary {
@@ -506,7 +514,7 @@ class HtmlPages {
           }
           button.btn-primary:hover { opacity: 0.95; transform: translateY(-1px); }
 
-          /* Cards */
+          /* Fit Ratings & Badges */
           .card {
             background: var(--panel); border: 1px solid var(--border);
             border-radius: 12px; padding: 22px; margin-bottom: 18px; position: relative;
@@ -514,15 +522,19 @@ class HtmlPages {
           .card-header { display: flex; justify-content: space-between; align-items: center; }
           .card h3 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; }
           
-          .badge { font-size: 11px; padding: 3px 8px; border-radius: 12px; font-weight: 700; text-transform: uppercase; }
-          .badge.senior { background: #2b6cb0; color: #ebf8ff; }
-          .badge.mid { background: #2c7a7b; color: #e6fffa; }
-          .badge.junior { background: #744210; color: #fffff0; }
+          .tier-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-left: 8px; }
+          .tier-badge.top { background: rgba(61, 220, 132, 0.15); color: var(--good); border: 1px solid var(--good); }
+          .tier-badge.strong { background: rgba(255, 180, 84, 0.15); color: var(--warn); border: 1px solid var(--warn); }
+          .tier-badge.low { background: rgba(255, 107, 107, 0.15); color: var(--danger); border: 1px solid var(--danger); }
 
-          .score-ring { font-size: 24px; font-weight: 800; }
+          .score-ring { font-size: 26px; font-weight: 800; }
           .score-ring.high { color: var(--good); }
           .score-ring.mid { color: var(--warn); }
           .score-ring.low { color: var(--danger); }
+
+          .fit-grid { display: flex; gap: 14px; margin: 12px 0; font-size: 12px; color: var(--muted); }
+          .fit-item { background: #181d28; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); }
+          .fit-item b { color: var(--text); }
 
           .tag {
             display:inline-block; background: #1a202c; border: 1px solid var(--border);
@@ -538,7 +550,6 @@ class HtmlPages {
           .check-yes { color: var(--good); font-weight: bold; }
           .check-no { color: var(--danger); font-weight: bold; }
 
-          /* Probe Box */
           .probe-box { background: #181d28; border-left: 3px solid var(--accent); padding: 12px 16px; margin-top: 12px; border-radius: 0 8px 8px 0; font-size: 13px; }
           .probe-box b { color: var(--accent); }
 
@@ -550,43 +561,76 @@ class HtmlPages {
 
     static String formPage(String jobDescriptionValue, String resumesValue) {
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-                + "<title>AI Resume Matcher & Analyst</title>" + STYLE + "</head><body>"
+                + "<title>AI Resume Matcher & Multi-File Analyst</title>" + STYLE + "</head><body>"
                 + "<div class='container'>"
                 + "<div class='header-box'>"
                 + "<h1>AI Resume Matcher</h1>"
-                + "<p class='subtitle'>Upload candidate PDF/TXT resumes or paste raw text to run deep AI similarity matching, side-by-side skill matrix analysis, and interview question generation.</p>"
+                + "<p class='subtitle'>Select multiple candidate PDF/TXT files in batches, tune priority skill weights, and generate automated match rankings & skill matrices.</p>"
                 + "</div>"
                 
-                + "<form method='POST' action='/match' enctype='multipart/form-data'>"
+                + "<form id='matchForm' method='POST' action='/match' enctype='multipart/form-data'>"
                 + "<label>Job Title</label>"
                 + "<input type='text' name='jobTitle' value='Backend Java Developer'>"
-                + "<label>Job Description</label>"
-                + "<textarea name='jobDescription' rows='5'>" + escape(jobDescriptionValue) + "</textarea>"
                 
-                + "<label>Option 1: Upload Candidate Resumes (PDF or TXT)</label>"
-                + "<div class='dropzone' onclick='document.getElementById(\"fileInput\").click()'>"
-                + "<div style='font-size:32px; margin-bottom:8px;'>📄</div>"
-                + "<div><b>Click to Select PDF / TXT Resumes</b> or drag files here</div>"
-                + "<div class='hint'>Upload multiple candidate resumes (e.g. Arjun_Mehta.pdf, Priya_Nair.pdf)</div>"
-                + "<input type='file' id='fileInput' name='resumeFiles' multiple accept='.pdf,.txt' onchange='updateFileList()'>"
-                + "<div id='fileList' class='file-list'></div>"
+                + "<label>Job Description</label>"
+                + "<textarea name='jobDescription' rows='4'>" + escape(jobDescriptionValue) + "</textarea>"
+
+                + "<label>🎯 Optional: Priority Must-Have Skills (Comma Separated for 2x Weight)</label>"
+                + "<input type='text' name='prioritySkills' placeholder='e.g. Spring Boot, PostgreSQL, Docker' value='Spring Boot, PostgreSQL'>"
+                + "<div class='hint'>Priority skills count 2x in scoring calculation!</div>"
+
+                + "<label>📁 Multi-File Upload Queue (PDF or TXT)</label>"
+                + "<div class='dropzone' onclick='document.getElementById(\"filePicker\").click()'>"
+                + "<div style='font-size:32px; margin-bottom:6px;'>📄</div>"
+                + "<div><b>Click to Select PDF / TXT Resumes</b> (Select multiple files or add in batches)</div>"
+                + "<div class='hint'>You can click multiple times to add more resumes to your queue!</div>"
+                + "<input type='file' id='filePicker' multiple accept='.pdf,.txt' style='display:none;' onchange='handleFiles(this.files)'>"
                 + "</div>"
-                + "<div style='text-align:right; font-size:12px;'><a href='/sample-pdf' style='color:var(--accent);'>Download Sample PDF Resume for Testing</a></div>"
 
-                + "<label>Option 2: Paste Raw Candidate Resumes (Text format)</label>"
-                + "<textarea name='resumesBlob' rows='8'>" + escape(resumesValue) + "</textarea>"
-                + "<div class='hint'>Separate candidates with <code>===</code> and start with <code>Name: Full Name</code></div>"
+                + "<div id='queueTitle' style='display:none; font-weight:600; font-size:14px; margin-bottom:8px;'>Selected Files Queue (<span id='fileCount'>0</span>):</div>"
+                + "<div id='fileQueue' class='file-queue'></div>"
+                
+                + "<div style='text-align:right; font-size:12px; margin-top:8px;'><a href='/sample-pdf' style='color:var(--accent);'>Download Sample PDF Resume for Testing</a></div>"
 
-                + "<br><button type='submit' class='btn-primary'>🚀 Run Match & Skill Analysis</button>"
+                + "<label>Or Paste Raw Resumes (Fallback Text Format)</label>"
+                + "<textarea name='resumesBlob' rows='6'>" + escape(resumesValue) + "</textarea>"
+                + "<div class='hint'>Separate pasted resumes with <code>===</code> and <code>Name: Candidate Name</code></div>"
+
+                + "<br><button type='submit' class='btn-primary'>🚀 Run Multi-Resume Match Analysis</button>"
                 + "</form>"
                 + "</div>"
+                
                 + "<script>"
-                + "function updateFileList() {"
-                + "  const input = document.getElementById('fileInput');"
-                + "  const list = document.getElementById('fileList');"
-                + "  if(input.files.length > 0) {"
-                + "     list.innerHTML = 'Selected ' + input.files.length + ' file(s): ' + Array.from(input.files).map(f => f.name).join(', ');"
-                + "  } else { list.innerHTML = ''; }"
+                + "let selectedFiles = [];"
+                + "function handleFiles(files) {"
+                + "  for(let file of files) {"
+                + "    if(!selectedFiles.some(f => f.name === file.name && f.size === file.size)) {"
+                + "      selectedFiles.push(file);"
+                + "    }"
+                + "  }"
+                + "  renderQueue();"
+                + "}"
+                + "function removeFile(index) {"
+                + "  selectedFiles.splice(index, 1);"
+                + "  renderQueue();"
+                + "}"
+                + "function renderQueue() {"
+                + "  const queueEl = document.getElementById('fileQueue');"
+                + "  const countEl = document.getElementById('fileCount');"
+                + "  const titleEl = document.getElementById('queueTitle');"
+                + "  queueEl.innerHTML = '';"
+                + "  countEl.innerText = selectedFiles.length;"
+                + "  titleEl.style.display = selectedFiles.length > 0 ? 'block' : 'none';"
+                + "  selectedFiles.forEach((file, idx) => {"
+                + "    const size = (file.size / 1024).toFixed(1) + ' KB';"
+                + "    const card = document.createElement('div');"
+                + "    card.className = 'file-card';"
+                + "    card.innerHTML = `<div><div class='fname'>📄 ${file.name}</div><div class='fsize'>${size}</div></div><button type='button' class='btn-remove' onclick='removeFile(${idx})'>✖</button>`;"
+                + "    queueEl.appendChild(card);"
+                + "  });"
+                + "  const dataTransfer = new DataTransfer();"
+                + "  selectedFiles.forEach(f => dataTransfer.items.add(f));"
+                + "  document.getElementById('filePicker').files = dataTransfer.files;"
                 + "}"
                 + "</script>"
                 + "</body></html>";
@@ -605,22 +649,26 @@ class HtmlPages {
             cards.append("<div class='card'>")
                  .append("<div class='card-header'>")
                  .append("<h3>#").append(rank++).append(" ").append(escape(r.getCandidate().getName()))
-                 .append("<span class='badge ").append(r.getSeniority().toLowerCase().replace(" / lead", "").replace("-level", "")).append("'>")
-                 .append(r.getSeniority()).append("</span></h3>")
+                 .append("<span class='tier-badge ").append(r.getTierClass()).append("'>").append(r.getTierLabel()).append("</span></h3>")
                  .append("<span class='score-ring ").append(scoreClass).append("'>")
                  .append(String.format("%.1f%%", pct)).append("</span>")
                  .append("</div>")
 
-                 .append("<div style='margin-top:10px;'><b>Matched Skills:</b> ").append(tagList(r.getMatchedSkills(), "matched")).append("</div>")
+                 .append("<div class='fit-grid'>")
+                 .append("<div class='fit-item'>Backend Architecture: <b>").append(r.getBackendFit()).append("</b></div>")
+                 .append("<div class='fit-item'>Cloud & DevOps: <b>").append(r.getCloudFit()).append("</b></div>")
+                 .append("<div class='fit-item'>Data & SQL: <b>").append(r.getDatabaseFit()).append("</b></div>")
+                 .append("</div>")
+
+                 .append("<div><b>Matched Skills:</b> ").append(tagList(r.getMatchedSkills(), "matched")).append("</div>")
                  .append("<div style='margin-top:6px;'><b>Skill Gaps:</b> ").append(tagList(r.getMissingSkills(), "missing")).append("</div>")
 
                  .append("<div class='probe-box'>")
-                 .append("<b>❓ Suggested Interview Probe:</b><br>")
+                 .append("<b>❓ Suggested Technical Interview Probe:</b><br>")
                  .append(escape(r.getInterviewProbe()))
                  .append("</div>")
                  .append("</div>");
 
-            // Matrix Row
             matrixRows.append("<tr><td><b>").append(escape(r.getCandidate().getName())).append("</b><br><small style='color:var(--muted);'>")
                       .append(String.format("%.1f%% Match", pct)).append("</small></td>");
             for (String skill : topSkills) {
@@ -631,7 +679,7 @@ class HtmlPages {
             matrixRows.append("</tr>");
 
             shortlistText.append(rank - 1).append(". ").append(r.getCandidate().getName())
-                         .append(" - ").append(String.format("%.1f%%", pct)).append(" Match (").append(r.getSeniority()).append(")\\n")
+                         .append(" - ").append(String.format("%.1f%%", pct)).append(" Match (").append(r.getTierLabel()).append(")\\n")
                          .append("   Matched: ").append(String.join(", ", r.getMatchedSkills())).append("\\n\\n");
         }
 
@@ -647,7 +695,7 @@ class HtmlPages {
                 + "<a class='back' href='/'>&larr; Back to Input Form</a>"
                 + "<div class='header-box' style='text-align:left;'>"
                 + "<h1>Results for: " + escape(job.getTitle()) + "</h1>"
-                + "<p class='subtitle'>AI-ranked candidate profile evaluation, side-by-side skill matrix, and technical interview guide.</p>"
+                + "<p class='subtitle'>AI-ranked candidate profiles, domain fit ratings, side-by-side skill matrix, and interview guide.</p>"
                 + "</div>"
 
                 + "<div class='tab-nav'>"
@@ -748,17 +796,27 @@ class MatchResult implements Comparable<MatchResult> {
     private final double score;
     private final List<String> matchedSkills;
     private final List<String> missingSkills;
-    private final String seniority;
+    private final String tierLabel;
+    private final String tierClass;
+    private final String backendFit;
+    private final String cloudFit;
+    private final String databaseFit;
     private final String interviewProbe;
 
     public MatchResult(Candidate candidate, double score,
                         List<String> matchedSkills, List<String> missingSkills,
-                        String seniority, String interviewProbe) {
+                        String tierLabel, String tierClass,
+                        String backendFit, String cloudFit, String databaseFit,
+                        String interviewProbe) {
         this.candidate = candidate;
         this.score = score;
         this.matchedSkills = matchedSkills;
         this.missingSkills = missingSkills;
-        this.seniority = seniority;
+        this.tierLabel = tierLabel;
+        this.tierClass = tierClass;
+        this.backendFit = backendFit;
+        this.cloudFit = cloudFit;
+        this.databaseFit = databaseFit;
         this.interviewProbe = interviewProbe;
     }
 
@@ -766,7 +824,11 @@ class MatchResult implements Comparable<MatchResult> {
     public double getScorePercent() { return Math.round(score * 10000.0) / 100.0; }
     public List<String> getMatchedSkills() { return matchedSkills; }
     public List<String> getMissingSkills() { return missingSkills; }
-    public String getSeniority() { return seniority; }
+    public String getTierLabel() { return tierLabel; }
+    public String getTierClass() { return tierClass; }
+    public String getBackendFit() { return backendFit; }
+    public String getCloudFit() { return cloudFit; }
+    public String getDatabaseFit() { return databaseFit; }
     public String getInterviewProbe() { return interviewProbe; }
 
     @Override
@@ -818,11 +880,13 @@ class TfIdfVectorizer {
         }
     }
 
-    public Map<String, Double> vectorize(List<String> tokens) {
+    public Map<String, Double> vectorize(List<String> tokens, List<String> prioritySkills) {
         Map<String, Double> vector = new HashMap<>();
         if (tokens.isEmpty()) return vector;
         Map<String, Integer> rawCounts = new HashMap<>();
         for (String term : tokens) rawCounts.merge(term, 1, Integer::sum);
+
+        Set<String> prioritySet = prioritySkills.stream().map(String::toLowerCase).collect(Collectors.toSet());
 
         int docLength = tokens.size();
         for (Map.Entry<String, Integer> entry : rawCounts.entrySet()) {
@@ -830,7 +894,9 @@ class TfIdfVectorizer {
             double tf = entry.getValue() / (double) docLength;
             int df = documentFrequency.getOrDefault(term, 0);
             double idf = Math.log((totalDocuments + 1) / (double) (df + 1)) + 1.0;
-            vector.put(term, tf * idf);
+            
+            double weightMultiplier = prioritySet.contains(term) ? 2.0 : 1.0;
+            vector.put(term, tf * idf * weightMultiplier);
         }
         return vector;
     }
@@ -867,7 +933,7 @@ class ResumeMatcherEngine {
                 .collect(Collectors.toList());
     }
 
-    public List<MatchResult> rankCandidates(JobPosting job, List<Candidate> candidates) {
+    public List<MatchResult> rankCandidates(JobPosting job, List<Candidate> candidates, List<String> prioritySkills) {
         List<String> jobTokens = TextPreprocessor.tokenize(job.getDescription());
         Map<Candidate, List<String>> candidateTokens = new LinkedHashMap<>();
         for (Candidate c : candidates) {
@@ -879,7 +945,7 @@ class ResumeMatcherEngine {
         corpus.addAll(candidateTokens.values());
         vectorizer.fit(corpus);
 
-        Map<String, Double> jobVector = vectorizer.vectorize(jobTokens);
+        Map<String, Double> jobVector = vectorizer.vectorize(jobTokens, prioritySkills);
         List<String> importantJobTerms = extractTopSkills(job.getDescription());
 
         List<MatchResult> results = new ArrayList<>();
@@ -887,7 +953,7 @@ class ResumeMatcherEngine {
             Candidate c = entry.getKey();
             List<String> tokens = entry.getValue();
 
-            Map<String, Double> resumeVector = vectorizer.vectorize(tokens);
+            Map<String, Double> resumeVector = vectorizer.vectorize(tokens, prioritySkills);
             double score = CosineSimilarity.compute(jobVector, resumeVector);
             Set<String> termSet = new HashSet<>(tokens);
 
@@ -898,25 +964,22 @@ class ResumeMatcherEngine {
                 else missing.add(term);
             }
 
-            String seniority = classifySeniority(c.getResumeText(), matched.size());
+            double pct = Math.round(score * 10000.0) / 100.0;
+            String tierLabel = pct >= 35 ? "⭐ Top Contender" : pct >= 20 ? "👍 Strong Match" : "💡 Growth Candidate";
+            String tierClass = pct >= 35 ? "top" : pct >= 20 ? "strong" : "low";
+
+            String lower = c.getResumeText().toLowerCase();
+            String backendFit = (lower.contains("java") || lower.contains("spring") || lower.contains("api")) ? "High" : "Moderate";
+            String cloudFit = (lower.contains("aws") || lower.contains("docker") || lower.contains("kubernetes")) ? "High" : "Basic";
+            String databaseFit = (lower.contains("sql") || lower.contains("postgres") || lower.contains("mysql")) ? "High" : "Basic";
+
             String probe = generateInterviewProbe(c.getName(), matched, missing);
 
-            results.add(new MatchResult(c, score, matched, missing, seniority, probe));
+            results.add(new MatchResult(c, score, matched, missing, tierLabel, tierClass, backendFit, cloudFit, databaseFit, probe));
         }
 
         Collections.sort(results);
         return results;
-    }
-
-    private String classifySeniority(String resumeText, int matchedCount) {
-        String lower = resumeText.toLowerCase();
-        if (lower.contains("senior") || lower.contains("lead") || lower.contains("architect") || lower.contains("5 years") || lower.contains("6 years") || lower.contains("7 years")) {
-            return "Senior / Lead";
-        }
-        if (matchedCount >= 3 || lower.contains("3 years") || lower.contains("4 years") || lower.contains("2 years")) {
-            return "Mid-Level";
-        }
-        return "Junior / Specialist";
     }
 
     private String generateInterviewProbe(String name, List<String> matched, List<String> missing) {
