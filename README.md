@@ -6,7 +6,14 @@ Built using **ONLY Java's built-in `com.sun.net.httpserver` package** — zero S
 
 ---
 
-## ✨ Features
+## 🚀 Quick Start (Open in Browser)
+
+Your server is running locally at:
+👉 **[http://localhost:8081](http://localhost:8081)**
+
+---
+
+## ✨ Key Features
 
 - 📄 **Direct PDF & TXT File Upload**: Built-in pure Java PDF text decompression engine (`java.util.zip.InflaterInputStream`) without Apache PDFBox or external libraries.
 - 🏆 **TF-IDF + Cosine Similarity Scoring**: Mathematical vector similarity match between job description requirements and candidate resumes.
@@ -18,26 +25,17 @@ Built using **ONLY Java's built-in `com.sun.net.httpserver` package** — zero S
 
 ---
 
-## 🚀 Quick Start (Local Execution)
-
-### Prerequisites
-- Any Java Development Kit (JDK 17 or higher recommended).
-
-### Running the App
+## 🛠️ Running Locally
 
 ```bash
-# 1. Compile Main.java
+# Compile Main.java
 javac Main.java
 
-# 2. Run the Server
-java Main
+# Run Server on Port 8081
+$env:PORT="8081"; java Main
 ```
 
-Open your browser and navigate to:
-```
-http://localhost:8080
-```
-*(If port 8080 is in use, set `PORT=8081 java Main` or `$env:PORT="8081"; java Main` in PowerShell).*
+Open your browser and navigate to: **http://localhost:8081**
 
 ---
 
