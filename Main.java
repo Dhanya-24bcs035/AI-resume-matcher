@@ -17,19 +17,17 @@ import java.util.zip.InflaterInputStream;
 
 /**
  * ============================================================
- *  AI RESUME MATCHER — MULTI-FILE & SKILL WEIGHTING EDITION
+ *  AI RESUME MATCHER & CAREER FINDER — PURE JAVA
  * ============================================================
- * Single-file Java web application with:
- *  - Interactive Multi-File Queue Uploader (select files in batches or drag & drop multiple PDFs)
- *  - Pure Java PDF Text Extractor (using InflaterInputStream)
- *  - Dynamic Skill Priority Weighting Controls
- *  - Categorized Match Tier Badging (Top Contender, Strong Candidate, Low Match)
- *  - Technical Category Fit Ratings (Backend, Cloud/DevOps, Database Fit)
+ * Features:
+ *  - Recruiter Mode: Match Resumes to a Job Description
+ *  - Job Seeker Mode (Career Finder): Upload Resume PDF → Discover Best-Fitting Jobs & Skill Gap Advice!
+ *  - Interactive Multi-File Queue Uploader (select/add files in batches)
+ *  - Pure Java PDF Text Extractor (InflaterInputStream)
+ *  - Dynamic Skill Priority Weighting
  *  - Side-by-Side Candidate Skill Comparison Matrix
- *  - Smart Technical Interview Probe Question Generator
- *  - HR Shortlist Executive Summary Exporter
- *
- * Built using ONLY Java's built-in packages — zero external dependencies!
+ *  - Technical Interview Probe Generator
+ *  - Executive Shortlist Report Exporter
  * ============================================================
  */
 public class Main {
@@ -98,9 +96,11 @@ public class Main {
             String jobTitle = "Backend Java Developer";
             String jobDescription = "";
             List<String> weightedSkills = new ArrayList<>();
+            String mode = "recruiter";
 
             if (contentType != null && contentType.toLowerCase().contains("multipart/form-data")) {
                 MultipartParser.ParseResult parsed = MultipartParser.parse(exchange, contentType);
+                mode = parsed.getFormFields().getOrDefault("appMode", "recruiter");
                 jobTitle = parsed.getFormFields().getOrDefault("jobTitle", "Backend Java Developer");
                 jobDescription = parsed.getFormFields().getOrDefault("jobDescription", "");
                 
@@ -116,6 +116,7 @@ public class Main {
             } else {
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 Map<String, String> form = parseFormBody(body);
+                mode = form.getOrDefault("appMode", "recruiter");
                 jobTitle = form.getOrDefault("jobTitle", "Backend Java Developer");
                 jobDescription = form.getOrDefault("jobDescription", "");
                 String resumesBlob = form.getOrDefault("resumesBlob", "");
@@ -125,13 +126,22 @@ public class Main {
             JobPosting job = new JobPosting(jobTitle, jobDescription);
 
             String html;
-            if (candidates.isEmpty() || jobDescription.isBlank()) {
+            if (candidates.isEmpty() && "recruiter".equals(mode) && jobDescription.isBlank()) {
                 html = HtmlPages.errorPage("Please provide a job description and upload at least one PDF/TXT resume or paste candidate text.");
+            } else if (candidates.isEmpty()) {
+                html = HtmlPages.errorPage("Please upload at least one PDF or TXT resume file to find suitable jobs!");
             } else {
                 ResumeMatcherEngine engine = new ResumeMatcherEngine();
                 List<MatchResult> results = engine.rankCandidates(job, candidates, weightedSkills);
-                List<String> topSkills = engine.extractTopSkills(jobDescription);
-                html = HtmlPages.resultsPage(job, results, topSkills);
+                List<String> topSkills = engine.extractTopSkills(jobDescription.isBlank() ? "Java Spring Boot SQL Cloud" : jobDescription);
+
+                // Calculate Career Job Recommendations for each candidate
+                Map<Candidate, List<JobRecommendation>> careerRecs = new LinkedHashMap<>();
+                for (Candidate c : candidates) {
+                    careerRecs.put(c, engine.recommendJobsForCandidate(c));
+                }
+
+                html = HtmlPages.resultsPage(job, results, topSkills, careerRecs, mode);
             }
 
             sendHtml(exchange, 200, html);
@@ -474,10 +484,15 @@ class HtmlPages {
             margin: 0; padding: 40px 20px;
           }
           .container { max-width: 980px; margin: 0 auto; }
-          .header-box { text-align: center; margin-bottom: 30px; }
+          .header-box { text-align: center; margin-bottom: 25px; }
           h1 { font-size: 34px; font-weight: 800; background: linear-gradient(135deg, #ff6a3d, #ff9d76); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
           p.subtitle { color: var(--muted); font-size: 15px; margin-top: 0; }
           
+          /* App Mode Switcher */
+          .mode-switcher { display: flex; justify-content: center; gap: 12px; margin-bottom: 25px; }
+          .mode-btn { background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 10px 20px; border-radius: 20px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
+          .mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 4px 12px var(--glow); }
+
           .tab-nav { display: flex; gap: 10px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
           .tab-btn { background: none; border: none; color: var(--muted); padding: 12px 18px; font-size: 15px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
           .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
@@ -553,6 +568,10 @@ class HtmlPages {
           .probe-box { background: #181d28; border-left: 3px solid var(--accent); padding: 12px 16px; margin-top: 12px; border-radius: 0 8px 8px 0; font-size: 13px; }
           .probe-box b { color: var(--accent); }
 
+          .job-rec-card { background: #181d28; border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-bottom: 10px; }
+          .job-rec-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
+          .job-title-text { font-size: 16px; font-weight: 700; color: var(--text); }
+
           a.back { color: var(--muted); text-decoration: none; font-size: 14px; display: inline-block; margin-bottom: 20px; }
           a.back:hover { color: var(--text); }
           .error { color: var(--danger); background: #2a1717; border:1px solid #4a2a2a; padding: 16px; border-radius: 8px; }
@@ -561,29 +580,41 @@ class HtmlPages {
 
     static String formPage(String jobDescriptionValue, String resumesValue) {
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-                + "<title>AI Resume Matcher & Multi-File Analyst</title>" + STYLE + "</head><body>"
+                + "<title>AI Resume Matcher & Career Finder</title>" + STYLE + "</head><body>"
                 + "<div class='container'>"
                 + "<div class='header-box'>"
-                + "<h1>AI Resume Matcher</h1>"
-                + "<p class='subtitle'>Select multiple candidate PDF/TXT files in batches, tune priority skill weights, and generate automated match rankings & skill matrices.</p>"
+                + "<h1>AI Resume Matcher & Career Finder</h1>"
+                + "<p class='subtitle'>Match candidates to job descriptions OR upload your resume PDF to discover top recommended job roles suited for you!</p>"
                 + "</div>"
                 
+                + "<div class='mode-switcher'>"
+                + "<button type='button' id='btnRecruiter' class='mode-btn active' onclick='setAppMode(\"recruiter\")'>🎯 Recruiter Mode (Match Job Description)</button>"
+                + "<button type='button' id='btnSeeker' class='mode-btn' onclick='setAppMode(\"seeker\")'>🚀 Job Seeker Mode (Find Suitable Jobs)</button>"
+                + "</div>"
+
                 + "<form id='matchForm' method='POST' action='/match' enctype='multipart/form-data'>"
+                + "<input type='hidden' id='appMode' name='appMode' value='recruiter'>"
+                
+                + "<div id='recruiterFields'>"
                 + "<label>Job Title</label>"
                 + "<input type='text' name='jobTitle' value='Backend Java Developer'>"
-                
                 + "<label>Job Description</label>"
                 + "<textarea name='jobDescription' rows='4'>" + escape(jobDescriptionValue) + "</textarea>"
-
                 + "<label>🎯 Optional: Priority Must-Have Skills (Comma Separated for 2x Weight)</label>"
                 + "<input type='text' name='prioritySkills' placeholder='e.g. Spring Boot, PostgreSQL, Docker' value='Spring Boot, PostgreSQL'>"
                 + "<div class='hint'>Priority skills count 2x in scoring calculation!</div>"
+                + "</div>"
 
-                + "<label>📁 Multi-File Upload Queue (PDF or TXT)</label>"
+                + "<div id='seekerHeader' style='display:none;' class='card'>"
+                + "<h3>🚀 Career Finder Mode Active</h3>"
+                + "<p class='subtitle'>Upload your resume PDF below. Our AI engine will analyze your skills against top tech role profiles and recommend the best matching jobs for your career!</p>"
+                + "</div>"
+
+                + "<label>📁 Upload Resume File(s) (PDF or TXT)</label>"
                 + "<div class='dropzone' onclick='document.getElementById(\"filePicker\").click()'>"
                 + "<div style='font-size:32px; margin-bottom:6px;'>📄</div>"
                 + "<div><b>Click to Select PDF / TXT Resumes</b> (Select multiple files or add in batches)</div>"
-                + "<div class='hint'>You can click multiple times to add more resumes to your queue!</div>"
+                + "<div class='hint'>Upload one or more candidate resumes to analyze!</div>"
                 + "<input type='file' id='filePicker' multiple accept='.pdf,.txt' style='display:none;' onchange='handleFiles(this.files)'>"
                 + "</div>"
 
@@ -592,16 +623,26 @@ class HtmlPages {
                 
                 + "<div style='text-align:right; font-size:12px; margin-top:8px;'><a href='/sample-pdf' style='color:var(--accent);'>Download Sample PDF Resume for Testing</a></div>"
 
+                + "<div id='pasteSection'>"
                 + "<label>Or Paste Raw Resumes (Fallback Text Format)</label>"
-                + "<textarea name='resumesBlob' rows='6'>" + escape(resumesValue) + "</textarea>"
+                + "<textarea name='resumesBlob' rows='5'>" + escape(resumesValue) + "</textarea>"
                 + "<div class='hint'>Separate pasted resumes with <code>===</code> and <code>Name: Candidate Name</code></div>"
+                + "</div>"
 
-                + "<br><button type='submit' class='btn-primary'>🚀 Run Multi-Resume Match Analysis</button>"
+                + "<br><button type='submit' id='submitBtn' class='btn-primary'>🚀 Run Match & Analysis</button>"
                 + "</form>"
                 + "</div>"
                 
                 + "<script>"
                 + "let selectedFiles = [];"
+                + "function setAppMode(mode) {"
+                + "  document.getElementById('appMode').value = mode;"
+                + "  document.getElementById('btnRecruiter').classList.toggle('active', mode==='recruiter');"
+                + "  document.getElementById('btnSeeker').classList.toggle('active', mode==='seeker');"
+                + "  document.getElementById('recruiterFields').style.display = mode==='recruiter' ? 'block' : 'none';"
+                + "  document.getElementById('seekerHeader').style.display = mode==='seeker' ? 'block' : 'none';"
+                + "  document.getElementById('submitBtn').innerText = mode==='seeker' ? '🚀 Find Recommended Jobs for My Resume' : '🚀 Run Multi-Resume Match Analysis';"
+                + "}"
                 + "function handleFiles(files) {"
                 + "  for(let file of files) {"
                 + "    if(!selectedFiles.some(f => f.name === file.name && f.size === file.size)) {"
@@ -636,9 +677,10 @@ class HtmlPages {
                 + "</body></html>";
     }
 
-    static String resultsPage(JobPosting job, List<MatchResult> results, List<String> topSkills) {
+    static String resultsPage(JobPosting job, List<MatchResult> results, List<String> topSkills, Map<Candidate, List<JobRecommendation>> careerRecs, String mode) {
         StringBuilder cards = new StringBuilder();
         StringBuilder matrixRows = new StringBuilder();
+        StringBuilder careerTabContent = new StringBuilder();
         StringBuilder shortlistText = new StringBuilder("EXECUTIVE CANDIDATE SHORTLIST REPORT\\nJob Title: " + job.getTitle() + "\\n\\n");
 
         int rank = 1;
@@ -681,6 +723,31 @@ class HtmlPages {
             shortlistText.append(rank - 1).append(". ").append(r.getCandidate().getName())
                          .append(" - ").append(String.format("%.1f%%", pct)).append(" Match (").append(r.getTierLabel()).append(")\\n")
                          .append("   Matched: ").append(String.join(", ", r.getMatchedSkills())).append("\\n\\n");
+
+            // Career Recommendations HTML for candidate
+            careerTabContent.append("<div class='card'>")
+                            .append("<h3>🚀 Job Role Suitability Recommendations for: ").append(escape(r.getCandidate().getName())).append("</h3>")
+                            .append("<p class='subtitle'>AI-evaluated job roles based on skills extracted from their resume PDF:</p>");
+            
+            List<JobRecommendation> recs = careerRecs.getOrDefault(r.getCandidate(), List.of());
+            for (JobRecommendation rec : recs) {
+                double recPct = Math.round(rec.getScore() * 10000.0) / 100.0;
+                String recClass = recPct >= 35 ? "good" : recPct >= 20 ? "warn" : "danger";
+                careerTabContent.append("<div class='job-rec-card'>")
+                                .append("<div class='job-rec-header'>")
+                                .append("<span class='job-title-text'>💼 ").append(escape(rec.getRoleTitle())).append("</span>")
+                                .append("<b style='color:var(--").append(recClass).append("); font-size:16px;'>")
+                                .append(String.format("%.1f%% Suitability Match", recPct)).append("</b>")
+                                .append("</div>")
+                                .append("<div style='font-size:13px; color:var(--muted); margin-bottom:6px;'>").append(escape(rec.getRoleSummary())).append("</div>")
+                                .append("<div><b>Matched Skills:</b> ").append(tagList(rec.getMatchedSkills(), "matched")).append("</div>")
+                                .append("<div style='margin-top:4px;'><b>Skills to Acquire:</b> ").append(tagList(rec.getMissingSkills(), "missing")).append("</div>")
+                                .append("<div class='probe-box' style='border-left-color:var(--good); margin-top:8px;'>")
+                                .append("💡 <b>Career Bridge Tip:</b> ").append(escape(rec.getCareerTip()))
+                                .append("</div>")
+                                .append("</div>");
+            }
+            careerTabContent.append("</div>");
         }
 
         StringBuilder matrixHeader = new StringBuilder("<tr><th>Candidate</th>");
@@ -689,22 +756,26 @@ class HtmlPages {
         }
         matrixHeader.append("</tr>");
 
+        boolean isSeeker = "seeker".equalsIgnoreCase(mode);
+
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-                + "<title>Match Dashboard</title>" + STYLE + "</head><body>"
+                + "<title>Match & Career Dashboard</title>" + STYLE + "</head><body>"
                 + "<div class='container'>"
                 + "<a class='back' href='/'>&larr; Back to Input Form</a>"
                 + "<div class='header-box' style='text-align:left;'>"
-                + "<h1>Results for: " + escape(job.getTitle()) + "</h1>"
-                + "<p class='subtitle'>AI-ranked candidate profiles, domain fit ratings, side-by-side skill matrix, and interview guide.</p>"
+                + "<h1>" + (isSeeker ? "🚀 Recommended Career Roles for Your Resume" : "Results for: " + escape(job.getTitle())) + "</h1>"
+                + "<p class='subtitle'>" + (isSeeker ? "AI analysis matching your uploaded resume PDF against top industry roles." : "AI-ranked candidate profiles, job suitability finder, side-by-side skill matrix, and interview guide.") + "</p>"
                 + "</div>"
 
                 + "<div class='tab-nav'>"
-                + "<button class='tab-btn active' onclick='showTab(\"rankings\", this)'>🏆 Ranked Profiles</button>"
+                + "<button class='tab-btn " + (isSeeker ? "" : "active") + "' onclick='showTab(\"rankings\", this)'>🏆 Ranked Profiles</button>"
+                + "<button class='tab-btn " + (isSeeker ? "active" : "") + "' onclick='showTab(\"career\", this)'>🚀 Recommended Jobs Finder</button>"
                 + "<button class='tab-btn' onclick='showTab(\"matrix\", this)'>📊 Skill Comparison Matrix</button>"
                 + "<button class='tab-btn' onclick='showTab(\"export\", this)'>📋 HR Shortlist Report</button>"
                 + "</div>"
 
-                + "<div id='tab-rankings'>" + cards + "</div>"
+                + "<div id='tab-rankings' style='display:" + (isSeeker ? "none" : "block") + ";'>" + cards + "</div>"
+                + "<div id='tab-career' style='display:" + (isSeeker ? "block" : "none") + ";'>" + careerTabContent + "</div>"
 
                 + "<div id='tab-matrix' style='display:none;'><div class='card'>"
                 + "<h3>Side-by-Side Skill Matrix</h3>"
@@ -725,6 +796,7 @@ class HtmlPages {
                 + "  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));"
                 + "  btn.classList.add('active');"
                 + "  document.getElementById('tab-rankings').style.display = name==='rankings' ? 'block' : 'none';"
+                + "  document.getElementById('tab-career').style.display = name==='career' ? 'block' : 'none';"
                 + "  document.getElementById('tab-matrix').style.display = name==='matrix' ? 'block' : 'none';"
                 + "  document.getElementById('tab-export').style.display = name==='export' ? 'block' : 'none';"
                 + "}"
@@ -789,6 +861,32 @@ class JobPosting {
 
     public String getTitle() { return title; }
     public String getDescription() { return description; }
+}
+
+class JobRecommendation {
+    private final String roleTitle;
+    private final String roleSummary;
+    private final double score;
+    private final List<String> matchedSkills;
+    private final List<String> missingSkills;
+    private final String careerTip;
+
+    public JobRecommendation(String roleTitle, String roleSummary, double score,
+                             List<String> matchedSkills, List<String> missingSkills, String careerTip) {
+        this.roleTitle = roleTitle;
+        this.roleSummary = roleSummary;
+        this.score = score;
+        this.matchedSkills = matchedSkills;
+        this.missingSkills = missingSkills;
+        this.careerTip = careerTip;
+    }
+
+    public String getRoleTitle() { return roleTitle; }
+    public String getRoleSummary() { return roleSummary; }
+    public double getScore() { return score; }
+    public List<String> getMatchedSkills() { return matchedSkills; }
+    public List<String> getMissingSkills() { return missingSkills; }
+    public String getCareerTip() { return careerTip; }
 }
 
 class MatchResult implements Comparable<MatchResult> {
@@ -919,6 +1017,38 @@ class CosineSimilarity {
     }
 }
 
+class IndustryRoleCatalog {
+    public static class RoleSpec {
+        public final String title;
+        public final String summary;
+        public final String description;
+
+        public RoleSpec(String title, String summary, String description) {
+            this.title = title;
+            this.summary = summary;
+            this.description = description;
+        }
+    }
+
+    public static final List<RoleSpec> ROLES = List.of(
+        new RoleSpec("Senior Backend Java Engineer",
+                     "Designing enterprise REST APIs, microservices, PostgreSQL databases, and high-throughput backend services.",
+                     "Java Spring Boot microservices REST API PostgreSQL Docker Kubernetes AWS Kafka Jenkins JUnit"),
+        new RoleSpec("Cloud & DevOps Infrastructure Specialist",
+                     "Automating CI/CD pipelines, container orchestration, Kubernetes deployment, and cloud infrastructure.",
+                     "Docker Kubernetes AWS Jenkins Kafka CI/CD DevOps Linux Infrastructure Cloud Terraform"),
+        new RoleSpec("Full Stack Web Developer",
+                     "Building responsive frontends in React/JS and integrating with backend REST microservices.",
+                     "Java React JavaScript HTML CSS REST API TypeScript Node Next.js SQL Git"),
+        new RoleSpec("Data Engineer & Analytics Specialist",
+                     "Building data pipelines, SQL transformations, dashboards, and analytical reporting.",
+                     "Python SQL PostgreSQL Pandas Data Visualization Dashboards Machine Learning Spark Hadoop ETL"),
+        new RoleSpec("Enterprise Java Application Architect",
+                     "Architecting legacy and cloud enterprise Java systems, ORM databases, and high-availability frameworks.",
+                     "Java Spring Framework Hibernate MySQL Enterprise Microservices Architecture Design Patterns AWS")
+    );
+}
+
 class ResumeMatcherEngine {
     private final TfIdfVectorizer vectorizer = new TfIdfVectorizer();
 
@@ -980,6 +1110,44 @@ class ResumeMatcherEngine {
 
         Collections.sort(results);
         return results;
+    }
+
+    public List<JobRecommendation> recommendJobsForCandidate(Candidate candidate) {
+        List<String> resumeTokens = TextPreprocessor.tokenize(candidate.getResumeText());
+        Set<String> resumeTermSet = new HashSet<>(resumeTokens);
+
+        List<List<String>> corpus = new ArrayList<>();
+        corpus.add(resumeTokens);
+        for (IndustryRoleCatalog.RoleSpec spec : IndustryRoleCatalog.ROLES) {
+            corpus.add(TextPreprocessor.tokenize(spec.description));
+        }
+
+        TfIdfVectorizer recVectorizer = new TfIdfVectorizer();
+        recVectorizer.fit(corpus);
+        Map<String, Double> resumeVector = recVectorizer.vectorize(resumeTokens, List.of());
+
+        List<JobRecommendation> recs = new ArrayList<>();
+        for (IndustryRoleCatalog.RoleSpec spec : IndustryRoleCatalog.ROLES) {
+            List<String> roleTokens = TextPreprocessor.tokenize(spec.description);
+            Map<String, Double> roleVector = recVectorizer.vectorize(roleTokens, List.of());
+
+            double sim = CosineSimilarity.compute(resumeVector, roleVector);
+
+            List<String> matched = new ArrayList<>();
+            List<String> missing = new ArrayList<>();
+            for (String t : roleTokens) {
+                if (resumeTermSet.contains(t)) matched.add(t);
+                else missing.add(t);
+            }
+
+            String tip = missing.isEmpty() ? "Excellent skill match! Target Senior positions." :
+                    "Acquiring skills in [" + String.join(", ", missing.subList(0, Math.min(2, missing.size()))) + "] will boost your qualification for " + spec.title + " roles!";
+
+            recs.add(new JobRecommendation(spec.title, spec.summary, sim, matched, missing, tip));
+        }
+
+        recs.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
+        return recs;
     }
 
     private String generateInterviewProbe(String name, List<String> matched, List<String> missing) {
