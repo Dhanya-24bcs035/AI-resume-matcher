@@ -1,0 +1,6 @@
+*.class
+node_modules/
+edge_temp/
+take_screenshots.js
+package-lock.json
+package.json
