@@ -18,27 +18,25 @@ import java.util.zip.InflaterInputStream;
 
 /**
  * ============================================================
- *  AI RESUME & CAREER ACCELERATOR PLATFORM (MARKET SAAS EDITION)
+ *  AI RESUME & CAREER ACCELERATOR PLATFORM (AUTHENTICATED SAAS)
  * ============================================================
  * Features:
- *  - User Career Profile & Session Management
- *  - Resume PDF / TXT Direct Parsing
- *  - Comprehensive AI Analysis Engine:
- *      * Overall Resume Match Score (%)
- *      * ATS Optimization Score (0-100)
- *      * Matching Skills & Missing Skills Breakdown
- *      * Detected Resume Strengths & Red Flag Weaknesses
- *      * Experience & Education Match Evaluation
- *      * Recommended Skills to Acquire
- *      * Personalized 4-Step Skill Improvement Roadmap
- *  - Historical Scan Progress Tracker & Score Improvement Timeline over time
- *  - Premium Modern Glassmorphic Dark UI (SaaS Market Standard)
+ *  - Authentication & Registration Flow (Login & Sign Up Pages)
+ *  - Session State & Logout Management
+ *  - User Career Profile Management
+ *  - Pure Java PDF & TXT File Text Extractor
+ *  - AI Resume Match & ATS Optimization Diagnostics
+ *  - Detected Strengths & Weaknesses / Red Flags Parser
+ *  - Personalized 4-Step Skill Improvement Roadmap
+ *  - Historical Scan Tracker & Score Improvement Timeline
+ *  - Premium Market-Grade Dark Glassmorphic UI/UX Design
  *
  * Built using ONLY Java's built-in packages — zero external dependencies!
  * ============================================================
  */
 public class Main {
 
+    private static boolean isLoggedIn = false;
     private static User currentUser = new User(
             "U101",
             "Alex Morgan",
@@ -59,7 +57,10 @@ public class Main {
         }
 
         HttpServer server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
-        server.createContext("/", new DashboardHandler());
+        server.createContext("/", new IndexHandler());
+        server.createContext("/login", new LoginHandler());
+        server.createContext("/logout", new LogoutHandler());
+        server.createContext("/dashboard", new DashboardHandler());
         server.createContext("/profile", new ProfileHandler());
         server.createContext("/scan", new ScanHandler());
         server.createContext("/history", new HistoryHandler());
@@ -74,11 +75,55 @@ public class Main {
     //  HTTP HANDLERS
     // ============================================================
 
+    static class IndexHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if (!isLoggedIn) {
+                redirect(exchange, "/login");
+            } else {
+                redirect(exchange, "/dashboard");
+            }
+        }
+    }
+
+    static class LoginHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                Map<String, String> form = parseFormBody(body);
+
+                String name = form.getOrDefault("name", "Alex Morgan");
+                String email = form.getOrDefault("email", "alex.morgan@techmail.com");
+                String targetRole = form.getOrDefault("targetRole", "Senior Backend Java Engineer");
+
+                currentUser.setName(name.isBlank() ? "Alex Morgan" : name);
+                currentUser.setEmail(email.isBlank() ? "alex.morgan@techmail.com" : email);
+                currentUser.setTargetRole(targetRole.isBlank() ? "Senior Backend Java Engineer" : targetRole);
+
+                isLoggedIn = true;
+                redirect(exchange, "/dashboard");
+                return;
+            }
+
+            String html = HtmlPages.loginPage();
+            sendHtml(exchange, 200, html);
+        }
+    }
+
+    static class LogoutHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            isLoggedIn = false;
+            redirect(exchange, "/login");
+        }
+    }
+
     static class DashboardHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
-                exchange.sendResponseHeaders(405, -1);
+            if (!isLoggedIn) {
+                redirect(exchange, "/login");
                 return;
             }
             String html = HtmlPages.dashboardPage(currentUser);
@@ -89,6 +134,10 @@ public class Main {
     static class ProfileHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            if (!isLoggedIn) {
+                redirect(exchange, "/login");
+                return;
+            }
             if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 Map<String, String> form = parseFormBody(body);
@@ -107,6 +156,10 @@ public class Main {
     static class HistoryHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            if (!isLoggedIn) {
+                redirect(exchange, "/login");
+                return;
+            }
             String html = HtmlPages.historyPage(currentUser);
             sendHtml(exchange, 200, html);
         }
@@ -131,6 +184,10 @@ public class Main {
     static class ScanHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
+            if (!isLoggedIn) {
+                redirect(exchange, "/login");
+                return;
+            }
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 return;
@@ -171,7 +228,6 @@ public class Main {
                 return;
             }
 
-            // Perform Deep AI Analysis & ATS Calculation
             AIAcceleratorEngine engine = new AIAcceleratorEngine();
             ScanResult scan = engine.analyzeResume(currentUser, jobTitle, jobDescription, uploadedResumeText);
             currentUser.addScan(scan);
@@ -179,6 +235,11 @@ public class Main {
             String html = HtmlPages.scanResultPage(currentUser, scan);
             sendHtml(exchange, 200, html);
         }
+    }
+
+    private static void redirect(HttpExchange exchange, String location) throws IOException {
+        exchange.getResponseHeaders().set("Location", location);
+        exchange.sendResponseHeaders(302, -1);
     }
 
     private static void sendHtml(HttpExchange exchange, int statusCode, String html) throws IOException {
@@ -537,7 +598,7 @@ class PdfGenerator {
 }
 
 // ============================================================
-//  HTML PAGES & SAAS UI COMPONENTS
+//  HTML PAGES & SAAS UI/UX DESIGN
 // ============================================================
 
 class HtmlPages {
@@ -553,35 +614,47 @@ class HtmlPages {
     private static final String STYLE = """
         <style>
           :root {
-            --bg: #090b10; --panel: #111520; --card-bg: #181e2e; --border: #263044;
-            --text: #edf2f7; --muted: #94a3b8; --accent: #6366f1; --accent-glow: rgba(99, 102, 241, 0.2);
+            --bg: #090b10; --panel: #111726; --card-bg: #1e293b; --border: #334155;
+            --text: #f8fafc; --muted: #94a3b8;
+            --accent: #6366f1; --accent-hover: #4f46e5; --accent-glow: rgba(99, 102, 241, 0.25);
             --good: #10b981; --warn: #f59e0b; --danger: #ef4444;
           }
           * { box-sizing: border-box; }
           body {
             background: var(--bg); color: var(--text);
-            font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-            margin: 0; padding: 0;
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+            margin: 0; padding: 0; min-height: 100vh;
           }
 
           /* Navbar */
           .navbar {
-            background: var(--panel); border-bottom: 1px solid var(--border);
-            padding: 16px 30px; display: flex; justify-content: space-between; align-items: center;
+            background: rgba(17, 23, 38, 0.8); backdrop-filter: blur(12px); border-bottom: 1px solid var(--border);
+            padding: 16px 36px; display: flex; justify-content: space-between; align-items: center; position: sticky; top: 0; z-index: 100;
           }
           .brand { font-size: 20px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 8px; text-decoration: none; }
-          .brand span { color: var(--accent); }
-          .nav-links { display: flex; gap: 20px; align-items: center; }
+          .brand span { background: linear-gradient(135deg, #818cf8, #6366f1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; }
+          .nav-links { display: flex; gap: 24px; align-items: center; }
           .nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; transition: color 0.2s; }
           .nav-links a:hover, .nav-links a.active { color: #fff; }
-          .user-badge { background: var(--card-bg); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
-          .avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; }
-
-          .container { max-width: 1000px; margin: 30px auto; padding: 0 20px; }
           
-          /* Hero & Cards */
+          .user-badge { background: var(--card-bg); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+          .avatar { width: 24px; height: 24px; border-radius: 50%; background: linear-gradient(135deg, #6366f1, #a855f7); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; }
+
+          .container { max-width: 1000px; margin: 36px auto; padding: 0 24px; }
+          
+          /* Login Card Styling */
+          .auth-wrapper { min-height: 90vh; display: flex; align-items: center; justify-content: center; padding: 20px; }
+          .auth-card {
+            width: 100%; max-width: 440px; background: var(--panel); border: 1px solid var(--border);
+            border-radius: 18px; padding: 36px; box-shadow: 0 20px 40px rgba(0,0,0,0.5), 0 0 30px var(--accent-glow);
+          }
+          .auth-tabs { display: flex; gap: 10px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
+          .auth-tab { background: none; border: none; color: var(--muted); padding: 10px 16px; font-size: 15px; font-weight: 700; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; width: 50%; }
+          .auth-tab.active { color: #fff; border-bottom-color: var(--accent); }
+
+          /* Cards & Gauges */
           .hero-header { text-align: center; margin-bottom: 30px; }
-          h1 { font-size: 34px; font-weight: 800; background: linear-gradient(135deg, #818cf8, #6366f1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+          h1 { font-size: 34px; font-weight: 800; background: linear-gradient(135deg, #a5b4fc, #6366f1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
           p.subtitle { color: var(--muted); font-size: 15px; margin-top: 0; }
 
           .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -589,41 +662,40 @@ class HtmlPages {
 
           .card {
             background: var(--panel); border: 1px solid var(--border);
-            border-radius: 14px; padding: 24px; margin-bottom: 20px; position: relative;
+            border-radius: 16px; padding: 26px; margin-bottom: 20px; position: relative; box-shadow: 0 10px 25px rgba(0,0,0,0.2);
           }
           .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
           .card h3 { margin: 0; font-size: 18px; color: #fff; }
 
-          /* Stat Meter Gauges */
           .score-gauge {
-            text-align: center; padding: 20px; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border);
+            text-align: center; padding: 22px; background: var(--card-bg); border-radius: 14px; border: 1px solid var(--border);
           }
-          .score-num { font-size: 42px; font-weight: 900; }
+          .score-num { font-size: 44px; font-weight: 900; }
           .score-num.good { color: var(--good); }
           .score-num.warn { color: var(--warn); }
           .score-num.danger { color: var(--danger); }
-          .score-label { color: var(--muted); font-size: 13px; margin-top: 4px; font-weight: 600; text-transform: uppercase; }
+          .score-label { color: var(--muted); font-size: 13px; margin-top: 4px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; }
 
-          /* Upload Zone */
           .dropzone {
             border: 2px dashed var(--accent); background: rgba(99, 102, 241, 0.04);
-            border-radius: 12px; padding: 26px; text-align: center; cursor: pointer; transition: background 0.2s;
+            border-radius: 14px; padding: 28px; text-align: center; cursor: pointer; transition: all 0.2s;
             margin-bottom: 16px;
           }
-          .dropzone:hover { background: rgba(99, 102, 241, 0.08); }
+          .dropzone:hover { background: rgba(99, 102, 241, 0.08); transform: scale(1.005); }
 
           label { display:block; font-weight:600; margin: 16px 0 6px; font-size: 14px; color: var(--text); }
-          input[type=text], input[type=email], textarea {
+          input[type=text], input[type=email], input[type=password], textarea {
             width: 100%; background: var(--card-bg); color: var(--text);
-            border: 1px solid var(--border); border-radius: 8px;
-            padding: 12px; font-size: 14px; font-family: inherit; resize: vertical;
+            border: 1px solid var(--border); border-radius: 10px;
+            padding: 12px 16px; font-size: 14px; font-family: inherit; resize: vertical; transition: border-color 0.2s;
           }
+          input:focus, textarea:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 10px var(--accent-glow); }
           textarea { min-height: 100px; line-height: 1.5; }
           
           button.btn-primary {
-            background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; border: none;
-            padding: 12px 24px; border-radius: 8px; font-size: 15px; font-weight: 700;
-            cursor: pointer; box-shadow: 0 4px 14px var(--accent-glow); transition: transform 0.1s, opacity 0.2s;
+            width: 100%; background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; border: none;
+            padding: 14px 24px; border-radius: 10px; font-size: 15px; font-weight: 700;
+            cursor: pointer; box-shadow: 0 4px 16px var(--accent-glow); transition: transform 0.1s, opacity 0.2s;
           }
           button.btn-primary:hover { opacity: 0.95; transform: translateY(-1px); }
 
@@ -633,7 +705,6 @@ class HtmlPages {
           .tag.matched { border: 1px solid var(--good); color: var(--good); background: rgba(16, 185, 129, 0.1); }
           .tag.missing { border: 1px solid var(--danger); color: #fca5a5; background: rgba(239, 68, 68, 0.1); }
 
-          /* Timeline Roadmap */
           .timeline { border-left: 2px solid var(--accent); padding-left: 20px; margin-top: 15px; }
           .timeline-item { position: relative; margin-bottom: 20px; }
           .timeline-item::before {
@@ -656,12 +727,69 @@ class HtmlPages {
         return "<div class='navbar'>"
                 + "<a href='/' class='brand'>⚡ AI <span>Career Accelerator</span></a>"
                 + "<div class='nav-links'>"
-                + "<a href='/' class='" + ("dashboard".equals(activePage) ? "active" : "") + "'>Dashboard</a>"
+                + "<a href='/dashboard' class='" + ("dashboard".equals(activePage) ? "active" : "") + "'>Dashboard</a>"
                 + "<a href='/profile' class='" + ("profile".equals(activePage) ? "active" : "") + "'>Career Profile</a>"
                 + "<a href='/history' class='" + ("history".equals(activePage) ? "active" : "") + "'>Scan History & Tracker</a>"
+                + "<a href='/logout' style='color:var(--danger);'>Sign Out 🚪</a>"
                 + "</div>"
                 + "<div class='user-badge'><div class='avatar'>" + user.getName().substring(0, 1) + "</div> " + HtmlPages.escape(user.getName()) + "</div>"
                 + "</div>";
+    }
+
+    static String loginPage() {
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+                + "<title>Sign In - AI Career Accelerator</title>" + STYLE + "</head><body>"
+                + "<div class='auth-wrapper'>"
+                + "<div class='auth-card'>"
+                + "<div style='text-align:center; margin-bottom:20px;'>"
+                + "<div style='font-size:36px; margin-bottom:6px;'>⚡</div>"
+                + "<h2 style='margin:0; font-size:24px;'>AI Career Accelerator</h2>"
+                + "<p class='subtitle' style='font-size:13px;'>Sign in to optimize your resume for ATS filters & track career growth</p>"
+                + "</div>"
+
+                + "<div class='auth-tabs'>"
+                + "<button type='button' id='tabLogin' class='auth-tab active' onclick='switchAuth(\"login\")'>Sign In</button>"
+                + "<button type='button' id='tabSignup' class='auth-tab' onclick='switchAuth(\"signup\")'>Create Account</button>"
+                + "</div>"
+
+                + "<form id='authForm' method='POST' action='/login'>"
+                + "<div id='nameField' style='display:none;'>"
+                + "<label>Full Name</label>"
+                + "<input type='text' name='name' placeholder='Alex Morgan'>"
+                + "</div>"
+
+                + "<label>Email Address</label>"
+                + "<input type='email' name='email' placeholder='alex.morgan@techmail.com' required>"
+
+                + "<label>Password</label>"
+                + "<input type='password' name='password' placeholder='••••••••' required>"
+
+                + "<div id='roleField' style='display:none;'>"
+                + "<label>Target Career Role</label>"
+                + "<input type='text' name='targetRole' placeholder='e.g. Senior Backend Java Engineer'>"
+                + "</div>"
+
+                + "<br><button type='submit' id='authSubmit' class='btn-primary'>🚀 Sign In to Dashboard</button>"
+                + "</form>"
+
+                + "<div style='margin-top:20px; text-align:center; border-top:1px solid var(--border); padding-top:16px;'>"
+                + "<form method='POST' action='/login'>"
+                + "<input type='hidden' name='email' value='alex.morgan@techmail.com'>"
+                + "<button type='submit' style='background:none; border:none; color:var(--accent); cursor:pointer; font-size:13px; font-weight:600;'>⚡ Continue as Demo User (Instant Access)</button>"
+                + "</form>"
+                + "</div>"
+
+                + "</div></div>"
+                + "<script>"
+                + "function switchAuth(mode) {"
+                + "  document.getElementById('tabLogin').classList.toggle('active', mode==='login');"
+                + "  document.getElementById('tabSignup').classList.toggle('active', mode==='signup');"
+                + "  document.getElementById('nameField').style.display = mode==='signup' ? 'block' : 'none';"
+                + "  document.getElementById('roleField').style.display = mode==='signup' ? 'block' : 'none';"
+                + "  document.getElementById('authSubmit').innerText = mode==='signup' ? '🚀 Create Account & Start' : '🚀 Sign In to Dashboard';"
+                + "}"
+                + "</script>"
+                + "</body></html>";
     }
 
     static String dashboardPage(User user) {
@@ -790,7 +918,7 @@ class HtmlPages {
                 + "<title>Diagnostic Report - AI Career Accelerator</title>" + STYLE + "</head><body>"
                 + renderNavbar("dashboard", user)
                 + "<div class='container'>"
-                + "<a class='back' href='/'>&larr; Back to Dashboard</a>"
+                + "<a class='back' href='/dashboard'>&larr; Back to Dashboard</a>"
 
                 + "<div class='hero-header' style='text-align:left;'>"
                 + "<h1>Diagnostic Report: " + escape(scan.getJobTitle()) + "</h1>"
@@ -841,7 +969,7 @@ class HtmlPages {
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
                 + "<title>Error</title>" + STYLE + "</head><body>"
                 + "<div class='container'>"
-                + "<a class='back' href='/'>&larr; Back to Dashboard</a>"
+                + "<a class='back' href='/dashboard'>&larr; Back to Dashboard</a>"
                 + "<div class='error'>" + escape(message) + "</div>"
                 + "</div></body></html>";
     }
@@ -903,14 +1031,12 @@ class AIAcceleratorEngine {
             else missing.add(term);
         }
 
-        // Calculate ATS Optimization Score (0-100)
         int atsScore = 60;
         if (resumeText.length() > 200) atsScore += 15;
         if (!matched.isEmpty()) atsScore += Math.min(20, matched.size() * 5);
         if (resumeText.toLowerCase().contains("education") || resumeText.toLowerCase().contains("degree")) atsScore += 5;
         atsScore = Math.min(98, atsScore);
 
-        // Strengths & Weaknesses
         List<String> strengths = new ArrayList<>();
         if (!matched.isEmpty()) strengths.add("Strong keywords alignment for " + String.join(", ", matched.subList(0, Math.min(3, matched.size()))));
         if (resumeText.toLowerCase().contains("experience") || resumeText.toLowerCase().contains("years")) strengths.add("Clear professional history and experience section.");
