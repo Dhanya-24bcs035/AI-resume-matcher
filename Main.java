@@ -9,6 +9,7 @@ import java.io.OutputStream;
 import java.net.InetSocketAddress;
 import java.net.URLDecoder;
 import java.nio.charset.StandardCharsets;
+import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -17,20 +18,36 @@ import java.util.zip.InflaterInputStream;
 
 /**
  * ============================================================
- *  AI RESUME MATCHER & CAREER FINDER — PURE JAVA
+ *  AI RESUME & CAREER ACCELERATOR PLATFORM (MARKET SAAS EDITION)
  * ============================================================
  * Features:
- *  - Recruiter Mode: Match Resumes to a Job Description
- *  - Job Seeker Mode (Career Finder): Upload Resume PDF → Discover Best-Fitting Jobs & Skill Gap Advice!
- *  - Interactive Multi-File Queue Uploader (select/add files in batches)
- *  - Pure Java PDF Text Extractor (InflaterInputStream)
- *  - Dynamic Skill Priority Weighting
- *  - Side-by-Side Candidate Skill Comparison Matrix
- *  - Technical Interview Probe Generator
- *  - Executive Shortlist Report Exporter
+ *  - User Career Profile & Session Management
+ *  - Resume PDF / TXT Direct Parsing
+ *  - Comprehensive AI Analysis Engine:
+ *      * Overall Resume Match Score (%)
+ *      * ATS Optimization Score (0-100)
+ *      * Matching Skills & Missing Skills Breakdown
+ *      * Detected Resume Strengths & Red Flag Weaknesses
+ *      * Experience & Education Match Evaluation
+ *      * Recommended Skills to Acquire
+ *      * Personalized 4-Step Skill Improvement Roadmap
+ *  - Historical Scan Progress Tracker & Score Improvement Timeline over time
+ *  - Premium Modern Glassmorphic Dark UI (SaaS Market Standard)
+ *
+ * Built using ONLY Java's built-in packages — zero external dependencies!
  * ============================================================
  */
 public class Main {
+
+    private static User currentUser = new User(
+            "U101",
+            "Alex Morgan",
+            "alex.morgan@techmail.com",
+            "Senior Backend Java Engineer",
+            "4 Years",
+            "B.S. in Computer Science",
+            "Backend engineer with 4 years of experience building Java applications using Spring Boot, microservices, PostgreSQL, Docker, Kubernetes, AWS, Kafka, and Jenkins."
+    );
 
     public static void main(String[] args) throws IOException {
         int port = 8080;
@@ -42,27 +59,55 @@ public class Main {
         }
 
         HttpServer server = HttpServer.create(new InetSocketAddress("0.0.0.0", port), 0);
-        server.createContext("/", new FormPageHandler());
-        server.createContext("/match", new MatchHandler());
+        server.createContext("/", new DashboardHandler());
+        server.createContext("/profile", new ProfileHandler());
+        server.createContext("/scan", new ScanHandler());
+        server.createContext("/history", new HistoryHandler());
         server.createContext("/sample-pdf", new SamplePdfHandler());
         server.setExecutor(null);
         server.start();
 
-        System.out.println("AI Resume Matcher Server running at http://localhost:" + port);
+        System.out.println("AI Career Accelerator SaaS Platform running at http://localhost:" + port);
     }
 
     // ============================================================
     //  HTTP HANDLERS
     // ============================================================
 
-    static class FormPageHandler implements HttpHandler {
+    static class DashboardHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if (!"GET".equalsIgnoreCase(exchange.getRequestMethod())) {
                 exchange.sendResponseHeaders(405, -1);
                 return;
             }
-            String html = HtmlPages.formPage(HtmlPages.SAMPLE_JOB, HtmlPages.SAMPLE_RESUMES);
+            String html = HtmlPages.dashboardPage(currentUser);
+            sendHtml(exchange, 200, html);
+        }
+    }
+
+    static class ProfileHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            if ("POST".equalsIgnoreCase(exchange.getRequestMethod())) {
+                String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
+                Map<String, String> form = parseFormBody(body);
+                currentUser.setName(form.getOrDefault("name", currentUser.getName()));
+                currentUser.setEmail(form.getOrDefault("email", currentUser.getEmail()));
+                currentUser.setTargetRole(form.getOrDefault("targetRole", currentUser.getTargetRole()));
+                currentUser.setExperienceYears(form.getOrDefault("experienceYears", currentUser.getExperienceYears()));
+                currentUser.setEducation(form.getOrDefault("education", currentUser.getEducation()));
+                currentUser.setResumeText(form.getOrDefault("resumeText", currentUser.getResumeText()));
+            }
+            String html = HtmlPages.profilePage(currentUser);
+            sendHtml(exchange, 200, html);
+        }
+    }
+
+    static class HistoryHandler implements HttpHandler {
+        @Override
+        public void handle(HttpExchange exchange) throws IOException {
+            String html = HtmlPages.historyPage(currentUser);
             sendHtml(exchange, 200, html);
         }
     }
@@ -70,8 +115,8 @@ public class Main {
     static class SamplePdfHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
-            String name = "Arjun_Mehta_Resume.pdf";
-            String text = "Name: Arjun Mehta\nBackend engineer with 4 years of experience building Java applications using Spring Boot, microservices, PostgreSQL, Docker, Kubernetes, AWS, Kafka, and Jenkins.";
+            String name = "Alex_Morgan_Resume.pdf";
+            String text = "Name: Alex Morgan\nBackend engineer with 4 years of experience building Java applications using Spring Boot, microservices, PostgreSQL, Docker, Kubernetes, AWS, Kafka, and Jenkins. B.S. Computer Science.";
             byte[] pdfBytes = PdfGenerator.createSimplePdf(text);
             
             exchange.getResponseHeaders().set("Content-Type", "application/pdf");
@@ -83,7 +128,7 @@ public class Main {
         }
     }
 
-    static class MatchHandler implements HttpHandler {
+    static class ScanHandler implements HttpHandler {
         @Override
         public void handle(HttpExchange exchange) throws IOException {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
@@ -92,58 +137,46 @@ public class Main {
             }
 
             String contentType = exchange.getRequestHeaders().getFirst("Content-Type");
-            List<Candidate> candidates = new ArrayList<>();
             String jobTitle = "Backend Java Developer";
-            String jobDescription = "";
-            List<String> weightedSkills = new ArrayList<>();
-            String mode = "recruiter";
+            String jobDescription = HtmlPages.SAMPLE_JOB;
+            String uploadedResumeText = "";
 
             if (contentType != null && contentType.toLowerCase().contains("multipart/form-data")) {
                 MultipartParser.ParseResult parsed = MultipartParser.parse(exchange, contentType);
-                mode = parsed.getFormFields().getOrDefault("appMode", "recruiter");
                 jobTitle = parsed.getFormFields().getOrDefault("jobTitle", "Backend Java Developer");
-                jobDescription = parsed.getFormFields().getOrDefault("jobDescription", "");
+                jobDescription = parsed.getFormFields().getOrDefault("jobDescription", HtmlPages.SAMPLE_JOB);
                 
-                String weightsStr = parsed.getFormFields().getOrDefault("prioritySkills", "");
-                if (!weightsStr.isBlank()) {
-                    weightedSkills = Arrays.stream(weightsStr.split(","))
-                            .map(String::trim).filter(s -> !s.isBlank()).collect(Collectors.toList());
+                String pastedText = parsed.getFormFields().getOrDefault("resumeText", "");
+                if (!pastedText.isBlank()) uploadedResumeText = pastedText;
+                
+                if (!parsed.getCandidatesFromFiles().isEmpty()) {
+                    uploadedResumeText = parsed.getCandidatesFromFiles().get(0).getResumeText();
                 }
-
-                String pastedResumes = parsed.getFormFields().getOrDefault("resumesBlob", "");
-                candidates.addAll(parseResumesBlob(pastedResumes));
-                candidates.addAll(parsed.getCandidatesFromFiles());
             } else {
                 String body = new String(exchange.getRequestBody().readAllBytes(), StandardCharsets.UTF_8);
                 Map<String, String> form = parseFormBody(body);
-                mode = form.getOrDefault("appMode", "recruiter");
                 jobTitle = form.getOrDefault("jobTitle", "Backend Java Developer");
-                jobDescription = form.getOrDefault("jobDescription", "");
-                String resumesBlob = form.getOrDefault("resumesBlob", "");
-                candidates.addAll(parseResumesBlob(resumesBlob));
+                jobDescription = form.getOrDefault("jobDescription", HtmlPages.SAMPLE_JOB);
+                uploadedResumeText = form.getOrDefault("resumeText", "");
             }
 
-            JobPosting job = new JobPosting(jobTitle, jobDescription);
-
-            String html;
-            if (candidates.isEmpty() && "recruiter".equals(mode) && jobDescription.isBlank()) {
-                html = HtmlPages.errorPage("Please provide a job description and upload at least one PDF/TXT resume or paste candidate text.");
-            } else if (candidates.isEmpty()) {
-                html = HtmlPages.errorPage("Please upload at least one PDF or TXT resume file to find suitable jobs!");
+            if (uploadedResumeText.isBlank()) {
+                uploadedResumeText = currentUser.getResumeText();
             } else {
-                ResumeMatcherEngine engine = new ResumeMatcherEngine();
-                List<MatchResult> results = engine.rankCandidates(job, candidates, weightedSkills);
-                List<String> topSkills = engine.extractTopSkills(jobDescription.isBlank() ? "Java Spring Boot SQL Cloud" : jobDescription);
-
-                // Calculate Career Job Recommendations for each candidate
-                Map<Candidate, List<JobRecommendation>> careerRecs = new LinkedHashMap<>();
-                for (Candidate c : candidates) {
-                    careerRecs.put(c, engine.recommendJobsForCandidate(c));
-                }
-
-                html = HtmlPages.resultsPage(job, results, topSkills, careerRecs, mode);
+                currentUser.setResumeText(uploadedResumeText);
             }
 
+            if (uploadedResumeText.isBlank()) {
+                sendHtml(exchange, 200, HtmlPages.errorPage("Please upload a resume PDF or enter your resume text in your profile."));
+                return;
+            }
+
+            // Perform Deep AI Analysis & ATS Calculation
+            AIAcceleratorEngine engine = new AIAcceleratorEngine();
+            ScanResult scan = engine.analyzeResume(currentUser, jobTitle, jobDescription, uploadedResumeText);
+            currentUser.addScan(scan);
+
+            String html = HtmlPages.scanResultPage(currentUser, scan);
             sendHtml(exchange, 200, html);
         }
     }
@@ -168,31 +201,103 @@ public class Main {
         }
         return result;
     }
+}
 
-    private static List<Candidate> parseResumesBlob(String blob) {
-        List<Candidate> candidates = new ArrayList<>();
-        if (blob == null || blob.isBlank()) return candidates;
+// ============================================================
+//  USER & SCAN DATA MODELS
+// ============================================================
 
-        String[] blocks = blob.split("(?m)^\\s*===\\s*$");
-        int counter = 1;
-        for (String block : blocks) {
-            String trimmed = block.trim();
-            if (trimmed.isEmpty()) continue;
+class User {
+    private final String id;
+    private String name;
+    private String email;
+    private String targetRole;
+    private String experienceYears;
+    private String education;
+    private String resumeText;
+    private final List<ScanResult> scanHistory = new ArrayList<>();
 
-            String name = "Candidate " + counter;
-            String resumeText = trimmed;
-
-            String[] lines = trimmed.split("\\R", 2);
-            if (lines[0].toLowerCase().startsWith("name:")) {
-                name = lines[0].substring(5).trim();
-                resumeText = lines.length > 1 ? lines[1].trim() : "";
-            }
-
-            candidates.add(new Candidate("C" + String.format("%03d", counter), name, resumeText));
-            counter++;
-        }
-        return candidates;
+    public User(String id, String name, String email, String targetRole, String experienceYears, String education, String resumeText) {
+        this.id = id;
+        this.name = name;
+        this.email = email;
+        this.targetRole = targetRole;
+        this.experienceYears = experienceYears;
+        this.education = education;
+        this.resumeText = resumeText;
     }
+
+    public String getId() { return id; }
+    public String getName() { return name; }
+    public void setName(String name) { this.name = name; }
+    public String getEmail() { return email; }
+    public void setEmail(String email) { this.email = email; }
+    public String getTargetRole() { return targetRole; }
+    public void setTargetRole(String targetRole) { this.targetRole = targetRole; }
+    public String getExperienceYears() { return experienceYears; }
+    public void setExperienceYears(String experienceYears) { this.experienceYears = experienceYears; }
+    public String getEducation() { return education; }
+    public void setEducation(String education) { this.education = education; }
+    public String getResumeText() { return resumeText; }
+    public void setResumeText(String resumeText) { this.resumeText = resumeText; }
+    public List<ScanResult> getScanHistory() { return scanHistory; }
+    public void addScan(ScanResult scan) { scanHistory.add(0, scan); }
+
+    public ScanResult getLatestScan() {
+        return scanHistory.isEmpty() ? null : scanHistory.get(0);
+    }
+}
+
+class ScanResult {
+    private final String scanId;
+    private final String timestamp;
+    private final String jobTitle;
+    private final String jobDescription;
+    private final double matchScore;
+    private final int atsScore;
+    private final List<String> matchingSkills;
+    private final List<String> missingSkills;
+    private final List<String> strengths;
+    private final List<String> weaknesses;
+    private final String experienceMatch;
+    private final String educationMatch;
+    private final List<String> recommendedSkills;
+    private final List<String> improvementRoadmap;
+
+    public ScanResult(String scanId, String timestamp, String jobTitle, String jobDescription,
+                      double matchScore, int atsScore, List<String> matchingSkills, List<String> missingSkills,
+                      List<String> strengths, List<String> weaknesses, String experienceMatch, String educationMatch,
+                      List<String> recommendedSkills, List<String> improvementRoadmap) {
+        this.scanId = scanId;
+        this.timestamp = timestamp;
+        this.jobTitle = jobTitle;
+        this.jobDescription = jobDescription;
+        this.matchScore = matchScore;
+        this.atsScore = atsScore;
+        this.matchingSkills = matchingSkills;
+        this.missingSkills = missingSkills;
+        this.strengths = strengths;
+        this.weaknesses = weaknesses;
+        this.experienceMatch = experienceMatch;
+        this.educationMatch = educationMatch;
+        this.recommendedSkills = recommendedSkills;
+        this.improvementRoadmap = improvementRoadmap;
+    }
+
+    public String getScanId() { return scanId; }
+    public String getTimestamp() { return timestamp; }
+    public String getJobTitle() { return jobTitle; }
+    public String getJobDescription() { return jobDescription; }
+    public double getMatchScore() { return Math.round(matchScore * 10000.0) / 100.0; }
+    public int getAtsScore() { return atsScore; }
+    public List<String> getMatchingSkills() { return matchingSkills; }
+    public List<String> getMissingSkills() { return missingSkills; }
+    public List<String> getStrengths() { return strengths; }
+    public List<String> getWeaknesses() { return weaknesses; }
+    public String getExperienceMatch() { return experienceMatch; }
+    public String getEducationMatch() { return educationMatch; }
+    public List<String> getRecommendedSkills() { return recommendedSkills; }
+    public List<String> getImprovementRoadmap() { return improvementRoadmap; }
 }
 
 // ============================================================
@@ -272,7 +377,7 @@ class MultipartParser {
         int idx = base.lastIndexOf('.');
         if (idx > 0) base = base.substring(0, idx);
         base = base.replaceAll("[-_]", " ").replaceAll("(?i)\\bresume\\b", "").trim();
-        if (base.isBlank()) return "Uploaded Candidate";
+        if (base.isBlank()) return "Uploaded Resume";
         String[] words = base.split("\\s+");
         return Arrays.stream(words)
                 .map(w -> w.substring(0, 1).toUpperCase() + (w.length() > 1 ? w.substring(1) : ""))
@@ -432,7 +537,7 @@ class PdfGenerator {
 }
 
 // ============================================================
-//  HTML PAGES & DASHBOARD
+//  HTML PAGES & SAAS UI COMPONENTS
 // ============================================================
 
 class HtmlPages {
@@ -445,374 +550,298 @@ class HtmlPages {
             "for event-driven systems and CI/CD pipelines using Jenkins is a big plus. " +
             "Good understanding of unit testing with JUnit and agile methodologies is required.";
 
-    static final String SAMPLE_RESUMES =
-            "Name: Arjun Mehta\n" +
-            "Backend engineer with 4 years of experience building Java applications " +
-            "using Spring Boot and microservices. Designed and deployed REST APIs backed " +
-            "by PostgreSQL, containerized with Docker and orchestrated on Kubernetes. " +
-            "Experience with AWS, Kafka for event streaming, Jenkins CI/CD pipelines, and " +
-            "JUnit for testing. Comfortable working in agile scrum teams.\n" +
-            "===\n" +
-            "Name: Priya Nair\n" +
-            "Frontend developer skilled in React, JavaScript, HTML and CSS. Built " +
-            "responsive user interfaces and worked closely with backend teams. Some " +
-            "exposure to REST APIs and Git. Currently learning TypeScript and Next.js.\n" +
-            "===\n" +
-            "Name: Rahul Sharma\n" +
-            "Java developer with 2 years building enterprise applications. Worked with " +
-            "Spring Framework and Hibernate for database access against MySQL. Basic " +
-            "exposure to Docker. No cloud or Kubernetes experience yet, but eager to " +
-            "learn AWS and event-driven systems.\n" +
-            "===\n" +
-            "Name: Sara Thomas\n" +
-            "Data analyst with strong Python and SQL skills. Experience with Pandas, " +
-            "data visualization, and building dashboards. Limited software engineering " +
-            "background and no Java experience.";
-
     private static final String STYLE = """
         <style>
           :root {
-            --bg: #0b0d12; --panel: #131722; --card-bg: #1a202c; --border: #2d3748;
-            --text: #edf2f7; --muted: #a0aec0; --accent: #ff6a3d;
-            --good: #3ddc84; --warn: #ffb454; --danger: #ff6b6b;
-            --glow: rgba(255, 106, 61, 0.15);
+            --bg: #090b10; --panel: #111520; --card-bg: #181e2e; --border: #263044;
+            --text: #edf2f7; --muted: #94a3b8; --accent: #6366f1; --accent-glow: rgba(99, 102, 241, 0.2);
+            --good: #10b981; --warn: #f59e0b; --danger: #ef4444;
           }
           * { box-sizing: border-box; }
           body {
             background: var(--bg); color: var(--text);
             font-family: -apple-system, BlinkMacSystemFont, Segoe UI, Roboto, Helvetica, Arial, sans-serif;
-            margin: 0; padding: 40px 20px;
+            margin: 0; padding: 0;
           }
-          .container { max-width: 980px; margin: 0 auto; }
-          .header-box { text-align: center; margin-bottom: 25px; }
-          h1 { font-size: 34px; font-weight: 800; background: linear-gradient(135deg, #ff6a3d, #ff9d76); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
-          p.subtitle { color: var(--muted); font-size: 15px; margin-top: 0; }
+
+          /* Navbar */
+          .navbar {
+            background: var(--panel); border-bottom: 1px solid var(--border);
+            padding: 16px 30px; display: flex; justify-content: space-between; align-items: center;
+          }
+          .brand { font-size: 20px; font-weight: 800; color: #fff; display: flex; align-items: center; gap: 8px; text-decoration: none; }
+          .brand span { color: var(--accent); }
+          .nav-links { display: flex; gap: 20px; align-items: center; }
+          .nav-links a { color: var(--muted); text-decoration: none; font-size: 14px; font-weight: 600; transition: color 0.2s; }
+          .nav-links a:hover, .nav-links a.active { color: #fff; }
+          .user-badge { background: var(--card-bg); border: 1px solid var(--border); border-radius: 20px; padding: 6px 14px; font-size: 13px; font-weight: 600; display: flex; align-items: center; gap: 8px; }
+          .avatar { width: 24px; height: 24px; border-radius: 50%; background: var(--accent); display: inline-flex; align-items: center; justify-content: center; font-size: 12px; color: #fff; }
+
+          .container { max-width: 1000px; margin: 30px auto; padding: 0 20px; }
           
-          /* App Mode Switcher */
-          .mode-switcher { display: flex; justify-content: center; gap: 12px; margin-bottom: 25px; }
-          .mode-btn { background: var(--panel); border: 1px solid var(--border); color: var(--muted); padding: 10px 20px; border-radius: 20px; font-size: 14px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-          .mode-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); box-shadow: 0 4px 12px var(--glow); }
+          /* Hero & Cards */
+          .hero-header { text-align: center; margin-bottom: 30px; }
+          h1 { font-size: 34px; font-weight: 800; background: linear-gradient(135deg, #818cf8, #6366f1); -webkit-background-clip: text; -webkit-text-fill-color: transparent; margin-bottom: 8px; }
+          p.subtitle { color: var(--muted); font-size: 15px; margin-top: 0; }
 
-          .tab-nav { display: flex; gap: 10px; border-bottom: 1px solid var(--border); margin-bottom: 24px; }
-          .tab-btn { background: none; border: none; color: var(--muted); padding: 12px 18px; font-size: 15px; font-weight: 600; cursor: pointer; border-bottom: 2px solid transparent; transition: all 0.2s; }
-          .tab-btn.active { color: var(--accent); border-bottom-color: var(--accent); }
+          .grid-2 { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+          .grid-3 { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 20px; }
 
-          /* File Queue Container */
+          .card {
+            background: var(--panel); border: 1px solid var(--border);
+            border-radius: 14px; padding: 24px; margin-bottom: 20px; position: relative;
+          }
+          .card-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 12px; }
+          .card h3 { margin: 0; font-size: 18px; color: #fff; }
+
+          /* Stat Meter Gauges */
+          .score-gauge {
+            text-align: center; padding: 20px; background: var(--card-bg); border-radius: 12px; border: 1px solid var(--border);
+          }
+          .score-num { font-size: 42px; font-weight: 900; }
+          .score-num.good { color: var(--good); }
+          .score-num.warn { color: var(--warn); }
+          .score-num.danger { color: var(--danger); }
+          .score-label { color: var(--muted); font-size: 13px; margin-top: 4px; font-weight: 600; text-transform: uppercase; }
+
+          /* Upload Zone */
           .dropzone {
-            border: 2px dashed var(--accent); background: rgba(255, 106, 61, 0.04);
-            border-radius: 12px; padding: 24px; text-align: center; cursor: pointer; transition: background 0.2s;
-            margin-bottom: 15px;
+            border: 2px dashed var(--accent); background: rgba(99, 102, 241, 0.04);
+            border-radius: 12px; padding: 26px; text-align: center; cursor: pointer; transition: background 0.2s;
+            margin-bottom: 16px;
           }
-          .dropzone:hover { background: rgba(255, 106, 61, 0.08); }
-          .file-queue { display: grid; grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)); gap: 10px; margin-top: 15px; }
-          .file-card {
-            background: var(--panel); border: 1px solid var(--border); border-radius: 8px;
-            padding: 10px 14px; display: flex; justify-content: space-between; align-items: center; font-size: 13px;
-          }
-          .file-card .fname { font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; max-width: 140px; }
-          .file-card .fsize { color: var(--muted); font-size: 11px; }
-          .btn-remove { background: none; border: none; color: var(--danger); font-weight: bold; cursor: pointer; font-size: 14px; padding: 2px 6px; }
+          .dropzone:hover { background: rgba(99, 102, 241, 0.08); }
 
-          label { display:block; font-weight:600; margin: 18px 0 6px; font-size: 14px; }
-          input[type=text], textarea {
-            width: 100%; background: var(--panel); color: var(--text);
+          label { display:block; font-weight:600; margin: 16px 0 6px; font-size: 14px; color: var(--text); }
+          input[type=text], input[type=email], textarea {
+            width: 100%; background: var(--card-bg); color: var(--text);
             border: 1px solid var(--border); border-radius: 8px;
             padding: 12px; font-size: 14px; font-family: inherit; resize: vertical;
           }
-          textarea { min-height: 110px; line-height: 1.5; }
-          .hint { color: var(--muted); font-size: 12px; margin-top: 6px; }
+          textarea { min-height: 100px; line-height: 1.5; }
           
           button.btn-primary {
-            background: linear-gradient(135deg, #ff6a3d, #e05326); color: #fff; border: none;
-            padding: 14px 28px; border-radius: 8px; font-size: 16px; font-weight: 700;
-            cursor: pointer; box-shadow: 0 4px 14px var(--glow); transition: transform 0.1s, opacity 0.2s;
+            background: linear-gradient(135deg, #6366f1, #4f46e5); color: #fff; border: none;
+            padding: 12px 24px; border-radius: 8px; font-size: 15px; font-weight: 700;
+            cursor: pointer; box-shadow: 0 4px 14px var(--accent-glow); transition: transform 0.1s, opacity 0.2s;
           }
           button.btn-primary:hover { opacity: 0.95; transform: translateY(-1px); }
 
-          /* Fit Ratings & Badges */
-          .card {
-            background: var(--panel); border: 1px solid var(--border);
-            border-radius: 12px; padding: 22px; margin-bottom: 18px; position: relative;
-          }
-          .card-header { display: flex; justify-content: space-between; align-items: center; }
-          .card h3 { margin: 0; font-size: 20px; display: flex; align-items: center; gap: 10px; }
-          
-          .tier-badge { display: inline-block; padding: 4px 10px; border-radius: 20px; font-size: 12px; font-weight: 700; margin-left: 8px; }
-          .tier-badge.top { background: rgba(61, 220, 132, 0.15); color: var(--good); border: 1px solid var(--good); }
-          .tier-badge.strong { background: rgba(255, 180, 84, 0.15); color: var(--warn); border: 1px solid var(--warn); }
-          .tier-badge.low { background: rgba(255, 107, 107, 0.15); color: var(--danger); border: 1px solid var(--danger); }
-
-          .score-ring { font-size: 26px; font-weight: 800; }
-          .score-ring.high { color: var(--good); }
-          .score-ring.mid { color: var(--warn); }
-          .score-ring.low { color: var(--danger); }
-
-          .fit-grid { display: flex; gap: 14px; margin: 12px 0; font-size: 12px; color: var(--muted); }
-          .fit-item { background: #181d28; padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); }
-          .fit-item b { color: var(--text); }
-
           .tag {
-            display:inline-block; background: #1a202c; border: 1px solid var(--border);
-            border-radius: 6px; padding: 3px 8px; margin: 3px 4px 0 0; font-size: 12px;
+            display:inline-block; border-radius: 6px; padding: 4px 10px; margin: 3px 4px 0 0; font-size: 12px; font-weight: 600;
           }
-          .tag.matched { border-color: var(--good); color: var(--good); background: rgba(61, 220, 132, 0.08); }
-          .tag.missing { border-color: rgba(255, 107, 107, 0.4); color: #ff9d9d; background: rgba(255, 107, 107, 0.05); }
+          .tag.matched { border: 1px solid var(--good); color: var(--good); background: rgba(16, 185, 129, 0.1); }
+          .tag.missing { border: 1px solid var(--danger); color: #fca5a5; background: rgba(239, 68, 68, 0.1); }
 
-          /* Matrix Table */
-          .matrix-table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-          .matrix-table th, .matrix-table td { border: 1px solid var(--border); padding: 10px 14px; text-align: center; font-size: 14px; }
-          .matrix-table th { background: var(--card-bg); color: var(--muted); text-align: left; }
-          .check-yes { color: var(--good); font-weight: bold; }
-          .check-no { color: var(--danger); font-weight: bold; }
+          /* Timeline Roadmap */
+          .timeline { border-left: 2px solid var(--accent); padding-left: 20px; margin-top: 15px; }
+          .timeline-item { position: relative; margin-bottom: 20px; }
+          .timeline-item::before {
+            content: ''; position: absolute; left: -26px; top: 2px; width: 10px; height: 10px;
+            border-radius: 50%; background: var(--accent); border: 2px solid var(--bg);
+          }
+          .timeline-title { font-weight: 700; font-size: 15px; color: #fff; margin-bottom: 4px; }
+          .timeline-desc { color: var(--muted); font-size: 13px; line-height: 1.5; }
 
-          .probe-box { background: #181d28; border-left: 3px solid var(--accent); padding: 12px 16px; margin-top: 12px; border-radius: 0 8px 8px 0; font-size: 13px; }
-          .probe-box b { color: var(--accent); }
+          .history-card { display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid var(--border); padding: 14px 0; }
+          .history-card:last-child { border-bottom: none; }
 
-          .job-rec-card { background: #181d28; border: 1px solid var(--border); border-radius: 8px; padding: 14px 18px; margin-bottom: 10px; }
-          .job-rec-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 6px; }
-          .job-title-text { font-size: 16px; font-weight: 700; color: var(--text); }
-
-          a.back { color: var(--muted); text-decoration: none; font-size: 14px; display: inline-block; margin-bottom: 20px; }
+          a.back { color: var(--muted); text-decoration: none; font-size: 14px; display: inline-block; margin-bottom: 18px; }
           a.back:hover { color: var(--text); }
           .error { color: var(--danger); background: #2a1717; border:1px solid #4a2a2a; padding: 16px; border-radius: 8px; }
         </style>
         """;
 
-    static String formPage(String jobDescriptionValue, String resumesValue) {
-        return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-                + "<title>AI Resume Matcher & Career Finder</title>" + STYLE + "</head><body>"
-                + "<div class='container'>"
-                + "<div class='header-box'>"
-                + "<h1>AI Resume Matcher & Career Finder</h1>"
-                + "<p class='subtitle'>Match candidates to job descriptions OR upload your resume PDF to discover top recommended job roles suited for you!</p>"
+    static String renderNavbar(String activePage, User user) {
+        return "<div class='navbar'>"
+                + "<a href='/' class='brand'>⚡ AI <span>Career Accelerator</span></a>"
+                + "<div class='nav-links'>"
+                + "<a href='/' class='" + ("dashboard".equals(activePage) ? "active" : "") + "'>Dashboard</a>"
+                + "<a href='/profile' class='" + ("profile".equals(activePage) ? "active" : "") + "'>Career Profile</a>"
+                + "<a href='/history' class='" + ("history".equals(activePage) ? "active" : "") + "'>Scan History & Tracker</a>"
                 + "</div>"
-                
-                + "<div class='mode-switcher'>"
-                + "<button type='button' id='btnRecruiter' class='mode-btn active' onclick='setAppMode(\"recruiter\")'>🎯 Recruiter Mode (Match Job Description)</button>"
-                + "<button type='button' id='btnSeeker' class='mode-btn' onclick='setAppMode(\"seeker\")'>🚀 Job Seeker Mode (Find Suitable Jobs)</button>"
-                + "</div>"
-
-                + "<form id='matchForm' method='POST' action='/match' enctype='multipart/form-data'>"
-                + "<input type='hidden' id='appMode' name='appMode' value='recruiter'>"
-                
-                + "<div id='recruiterFields'>"
-                + "<label>Job Title</label>"
-                + "<input type='text' name='jobTitle' value='Backend Java Developer'>"
-                + "<label>Job Description</label>"
-                + "<textarea name='jobDescription' rows='4'>" + escape(jobDescriptionValue) + "</textarea>"
-                + "<label>🎯 Optional: Priority Must-Have Skills (Comma Separated for 2x Weight)</label>"
-                + "<input type='text' name='prioritySkills' placeholder='e.g. Spring Boot, PostgreSQL, Docker' value='Spring Boot, PostgreSQL'>"
-                + "<div class='hint'>Priority skills count 2x in scoring calculation!</div>"
-                + "</div>"
-
-                + "<div id='seekerHeader' style='display:none;' class='card'>"
-                + "<h3>🚀 Career Finder Mode Active</h3>"
-                + "<p class='subtitle'>Upload your resume PDF below. Our AI engine will analyze your skills against top tech role profiles and recommend the best matching jobs for your career!</p>"
-                + "</div>"
-
-                + "<label>📁 Upload Resume File(s) (PDF or TXT)</label>"
-                + "<div class='dropzone' onclick='document.getElementById(\"filePicker\").click()'>"
-                + "<div style='font-size:32px; margin-bottom:6px;'>📄</div>"
-                + "<div><b>Click to Select PDF / TXT Resumes</b> (Select multiple files or add in batches)</div>"
-                + "<div class='hint'>Upload one or more candidate resumes to analyze!</div>"
-                + "<input type='file' id='filePicker' multiple accept='.pdf,.txt' style='display:none;' onchange='handleFiles(this.files)'>"
-                + "</div>"
-
-                + "<div id='queueTitle' style='display:none; font-weight:600; font-size:14px; margin-bottom:8px;'>Selected Files Queue (<span id='fileCount'>0</span>):</div>"
-                + "<div id='fileQueue' class='file-queue'></div>"
-                
-                + "<div style='text-align:right; font-size:12px; margin-top:8px;'><a href='/sample-pdf' style='color:var(--accent);'>Download Sample PDF Resume for Testing</a></div>"
-
-                + "<div id='pasteSection'>"
-                + "<label>Or Paste Raw Resumes (Fallback Text Format)</label>"
-                + "<textarea name='resumesBlob' rows='5'>" + escape(resumesValue) + "</textarea>"
-                + "<div class='hint'>Separate pasted resumes with <code>===</code> and <code>Name: Candidate Name</code></div>"
-                + "</div>"
-
-                + "<br><button type='submit' id='submitBtn' class='btn-primary'>🚀 Run Match & Analysis</button>"
-                + "</form>"
-                + "</div>"
-                
-                + "<script>"
-                + "let selectedFiles = [];"
-                + "function setAppMode(mode) {"
-                + "  document.getElementById('appMode').value = mode;"
-                + "  document.getElementById('btnRecruiter').classList.toggle('active', mode==='recruiter');"
-                + "  document.getElementById('btnSeeker').classList.toggle('active', mode==='seeker');"
-                + "  document.getElementById('recruiterFields').style.display = mode==='recruiter' ? 'block' : 'none';"
-                + "  document.getElementById('seekerHeader').style.display = mode==='seeker' ? 'block' : 'none';"
-                + "  document.getElementById('submitBtn').innerText = mode==='seeker' ? '🚀 Find Recommended Jobs for My Resume' : '🚀 Run Multi-Resume Match Analysis';"
-                + "}"
-                + "function handleFiles(files) {"
-                + "  for(let file of files) {"
-                + "    if(!selectedFiles.some(f => f.name === file.name && f.size === file.size)) {"
-                + "      selectedFiles.push(file);"
-                + "    }"
-                + "  }"
-                + "  renderQueue();"
-                + "}"
-                + "function removeFile(index) {"
-                + "  selectedFiles.splice(index, 1);"
-                + "  renderQueue();"
-                + "}"
-                + "function renderQueue() {"
-                + "  const queueEl = document.getElementById('fileQueue');"
-                + "  const countEl = document.getElementById('fileCount');"
-                + "  const titleEl = document.getElementById('queueTitle');"
-                + "  queueEl.innerHTML = '';"
-                + "  countEl.innerText = selectedFiles.length;"
-                + "  titleEl.style.display = selectedFiles.length > 0 ? 'block' : 'none';"
-                + "  selectedFiles.forEach((file, idx) => {"
-                + "    const size = (file.size / 1024).toFixed(1) + ' KB';"
-                + "    const card = document.createElement('div');"
-                + "    card.className = 'file-card';"
-                + "    card.innerHTML = `<div><div class='fname'>📄 ${file.name}</div><div class='fsize'>${size}</div></div><button type='button' class='btn-remove' onclick='removeFile(${idx})'>✖</button>`;"
-                + "    queueEl.appendChild(card);"
-                + "  });"
-                + "  const dataTransfer = new DataTransfer();"
-                + "  selectedFiles.forEach(f => dataTransfer.items.add(f));"
-                + "  document.getElementById('filePicker').files = dataTransfer.files;"
-                + "}"
-                + "</script>"
-                + "</body></html>";
+                + "<div class='user-badge'><div class='avatar'>" + user.getName().substring(0, 1) + "</div> " + HtmlPages.escape(user.getName()) + "</div>"
+                + "</div>";
     }
 
-    static String resultsPage(JobPosting job, List<MatchResult> results, List<String> topSkills, Map<Candidate, List<JobRecommendation>> careerRecs, String mode) {
-        StringBuilder cards = new StringBuilder();
-        StringBuilder matrixRows = new StringBuilder();
-        StringBuilder careerTabContent = new StringBuilder();
-        StringBuilder shortlistText = new StringBuilder("EXECUTIVE CANDIDATE SHORTLIST REPORT\\nJob Title: " + job.getTitle() + "\\n\\n");
+    static String dashboardPage(User user) {
+        ScanResult latest = user.getLatestScan();
+        String latestScoreHtml = latest == null ? "<div class='score-num warn'>--</div><div class='score-label'>No Scans Yet</div>" :
+                "<div class='score-num " + (latest.getMatchScore() >= 40 ? "good" : "warn") + "'>" + String.format("%.1f%%", latest.getMatchScore()) + "</div><div class='score-label'>Match Score</div>";
 
-        int rank = 1;
-        for (MatchResult r : results) {
-            double pct = r.getScorePercent();
-            String scoreClass = pct >= 40 ? "high" : pct >= 20 ? "mid" : "low";
-
-            cards.append("<div class='card'>")
-                 .append("<div class='card-header'>")
-                 .append("<h3>#").append(rank++).append(" ").append(escape(r.getCandidate().getName()))
-                 .append("<span class='tier-badge ").append(r.getTierClass()).append("'>").append(r.getTierLabel()).append("</span></h3>")
-                 .append("<span class='score-ring ").append(scoreClass).append("'>")
-                 .append(String.format("%.1f%%", pct)).append("</span>")
-                 .append("</div>")
-
-                 .append("<div class='fit-grid'>")
-                 .append("<div class='fit-item'>Backend Architecture: <b>").append(r.getBackendFit()).append("</b></div>")
-                 .append("<div class='fit-item'>Cloud & DevOps: <b>").append(r.getCloudFit()).append("</b></div>")
-                 .append("<div class='fit-item'>Data & SQL: <b>").append(r.getDatabaseFit()).append("</b></div>")
-                 .append("</div>")
-
-                 .append("<div><b>Matched Skills:</b> ").append(tagList(r.getMatchedSkills(), "matched")).append("</div>")
-                 .append("<div style='margin-top:6px;'><b>Skill Gaps:</b> ").append(tagList(r.getMissingSkills(), "missing")).append("</div>")
-
-                 .append("<div class='probe-box'>")
-                 .append("<b>❓ Suggested Technical Interview Probe:</b><br>")
-                 .append(escape(r.getInterviewProbe()))
-                 .append("</div>")
-                 .append("</div>");
-
-            matrixRows.append("<tr><td><b>").append(escape(r.getCandidate().getName())).append("</b><br><small style='color:var(--muted);'>")
-                      .append(String.format("%.1f%% Match", pct)).append("</small></td>");
-            for (String skill : topSkills) {
-                boolean hasSkill = r.getMatchedSkills().contains(skill);
-                matrixRows.append("<td class='").append(hasSkill ? "check-yes" : "check-no").append("'>")
-                          .append(hasSkill ? "✔" : "✖").append("</td>");
-            }
-            matrixRows.append("</tr>");
-
-            shortlistText.append(rank - 1).append(". ").append(r.getCandidate().getName())
-                         .append(" - ").append(String.format("%.1f%%", pct)).append(" Match (").append(r.getTierLabel()).append(")\\n")
-                         .append("   Matched: ").append(String.join(", ", r.getMatchedSkills())).append("\\n\\n");
-
-            // Career Recommendations HTML for candidate
-            careerTabContent.append("<div class='card'>")
-                            .append("<h3>🚀 Job Role Suitability Recommendations for: ").append(escape(r.getCandidate().getName())).append("</h3>")
-                            .append("<p class='subtitle'>AI-evaluated job roles based on skills extracted from their resume PDF:</p>");
-            
-            List<JobRecommendation> recs = careerRecs.getOrDefault(r.getCandidate(), List.of());
-            for (JobRecommendation rec : recs) {
-                double recPct = Math.round(rec.getScore() * 10000.0) / 100.0;
-                String recClass = recPct >= 35 ? "good" : recPct >= 20 ? "warn" : "danger";
-                careerTabContent.append("<div class='job-rec-card'>")
-                                .append("<div class='job-rec-header'>")
-                                .append("<span class='job-title-text'>💼 ").append(escape(rec.getRoleTitle())).append("</span>")
-                                .append("<b style='color:var(--").append(recClass).append("); font-size:16px;'>")
-                                .append(String.format("%.1f%% Suitability Match", recPct)).append("</b>")
-                                .append("</div>")
-                                .append("<div style='font-size:13px; color:var(--muted); margin-bottom:6px;'>").append(escape(rec.getRoleSummary())).append("</div>")
-                                .append("<div><b>Matched Skills:</b> ").append(tagList(rec.getMatchedSkills(), "matched")).append("</div>")
-                                .append("<div style='margin-top:4px;'><b>Skills to Acquire:</b> ").append(tagList(rec.getMissingSkills(), "missing")).append("</div>")
-                                .append("<div class='probe-box' style='border-left-color:var(--good); margin-top:8px;'>")
-                                .append("💡 <b>Career Bridge Tip:</b> ").append(escape(rec.getCareerTip()))
-                                .append("</div>")
-                                .append("</div>");
-            }
-            careerTabContent.append("</div>");
-        }
-
-        StringBuilder matrixHeader = new StringBuilder("<tr><th>Candidate</th>");
-        for (String skill : topSkills) {
-            matrixHeader.append("<th>").append(escape(skill)).append("</th>");
-        }
-        matrixHeader.append("</tr>");
-
-        boolean isSeeker = "seeker".equalsIgnoreCase(mode);
+        String latestAtsHtml = latest == null ? "<div class='score-num warn'>--</div><div class='score-label'>No Scans Yet</div>" :
+                "<div class='score-num " + (latest.getAtsScore() >= 75 ? "good" : "warn") + "'>" + latest.getAtsScore() + "/100</div><div class='score-label'>ATS Readability</div>";
 
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
-                + "<title>Match & Career Dashboard</title>" + STYLE + "</head><body>"
+                + "<title>Dashboard - AI Career Accelerator</title>" + STYLE + "</head><body>"
+                + renderNavbar("dashboard", user)
                 + "<div class='container'>"
-                + "<a class='back' href='/'>&larr; Back to Input Form</a>"
-                + "<div class='header-box' style='text-align:left;'>"
-                + "<h1>" + (isSeeker ? "🚀 Recommended Career Roles for Your Resume" : "Results for: " + escape(job.getTitle())) + "</h1>"
-                + "<p class='subtitle'>" + (isSeeker ? "AI analysis matching your uploaded resume PDF against top industry roles." : "AI-ranked candidate profiles, job suitability finder, side-by-side skill matrix, and interview guide.") + "</p>"
+                + "<div class='hero-header'>"
+                + "<h1>Welcome back, " + escape(user.getName()) + "! 👋</h1>"
+                + "<p class='subtitle'>Analyze your resume against job postings, optimize for ATS filters, and track your career growth timeline.</p>"
                 + "</div>"
 
-                + "<div class='tab-nav'>"
-                + "<button class='tab-btn " + (isSeeker ? "" : "active") + "' onclick='showTab(\"rankings\", this)'>🏆 Ranked Profiles</button>"
-                + "<button class='tab-btn " + (isSeeker ? "active" : "") + "' onclick='showTab(\"career\", this)'>🚀 Recommended Jobs Finder</button>"
-                + "<button class='tab-btn' onclick='showTab(\"matrix\", this)'>📊 Skill Comparison Matrix</button>"
-                + "<button class='tab-btn' onclick='showTab(\"export\", this)'>📋 HR Shortlist Report</button>"
+                + "<div class='grid-3'>"
+                + "<div class='card score-gauge'>" + latestScoreHtml + "</div>"
+                + "<div class='card score-gauge'>" + latestAtsHtml + "</div>"
+                + "<div class='card score-gauge'>"
+                + "<div class='score-num good'>" + user.getScanHistory().size() + "</div>"
+                + "<div class='score-label'>Total Scans Run</div>"
+                + "</div>"
                 + "</div>"
 
-                + "<div id='tab-rankings' style='display:" + (isSeeker ? "none" : "block") + ";'>" + cards + "</div>"
-                + "<div id='tab-career' style='display:" + (isSeeker ? "block" : "none") + ";'>" + careerTabContent + "</div>"
+                + "<div class='card'>"
+                + "<h3>🚀 Run New AI Resume & ATS Scan</h3>"
+                + "<p class='subtitle'>Upload your resume PDF or paste a job description to generate a full diagnostic report & roadmap.</p>"
+                
+                + "<form method='POST' action='/scan' enctype='multipart/form-data'>"
+                + "<label>Target Job Title</label>"
+                + "<input type='text' name='jobTitle' value='" + escape(user.getTargetRole()) + "'>"
+                
+                + "<label>Job Description</label>"
+                + "<textarea name='jobDescription' rows='4'>" + escape(SAMPLE_JOB) + "</textarea>"
 
-                + "<div id='tab-matrix' style='display:none;'><div class='card'>"
-                + "<h3>Side-by-Side Skill Matrix</h3>"
-                + "<p class='subtitle'>Comparing candidates against top job description terms.</p>"
-                + "<table class='matrix-table'><thead>" + matrixHeader + "</thead><tbody>" + matrixRows + "</tbody></table>"
-                + "</div></div>"
-
-                + "<div id='tab-export' style='display:none;'><div class='card'>"
-                + "<h3>HR Shortlist & Executive Summary</h3>"
-                + "<p class='subtitle'>Copy this summary for your hiring workflow.</p>"
-                + "<textarea id='reportText' rows='12' style='font-family:monospace;'>" + shortlistText.toString().replace("\\n", "\n") + "</textarea>"
-                + "<button class='btn-primary' style='margin-top:12px;' onclick='copyReport()'>📋 Copy Report to Clipboard</button>"
-                + "</div></div>"
-
+                + "<label>Upload Resume PDF / TXT (Optional - defaults to Profile Resume)</label>"
+                + "<div class='dropzone' onclick='document.getElementById(\"filePicker\").click()'>"
+                + "<div style='font-size:28px; margin-bottom:4px;'>📄</div>"
+                + "<div><b>Click to Select Resume PDF</b> (Or leave blank to use stored profile resume)</div>"
+                + "<input type='file' id='filePicker' name='resumeFile' accept='.pdf,.txt' style='display:none;' onchange='document.getElementById(\"fileName\").innerText=this.files[0].name'>"
+                + "<div id='fileName' style='color:var(--good); font-size:12px; margin-top:6px;'></div>"
                 + "</div>"
-                + "<script>"
-                + "function showTab(name, btn) {"
-                + "  document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));"
-                + "  btn.classList.add('active');"
-                + "  document.getElementById('tab-rankings').style.display = name==='rankings' ? 'block' : 'none';"
-                + "  document.getElementById('tab-career').style.display = name==='career' ? 'block' : 'none';"
-                + "  document.getElementById('tab-matrix').style.display = name==='matrix' ? 'block' : 'none';"
-                + "  document.getElementById('tab-export').style.display = name==='export' ? 'block' : 'none';"
-                + "}"
-                + "function copyReport() {"
-                + "  const t = document.getElementById('reportText'); t.select(); document.execCommand('copy');"
-                + "  alert('HR Summary copied to clipboard!');"
-                + "}"
-                + "</script>"
-                + "</body></html>";
+                + "<div style='text-align:right; font-size:12px;'><a href='/sample-pdf' style='color:var(--accent);'>Download Test Resume PDF</a></div>"
+
+                + "<label>Or Paste / Edit Resume Text</label>"
+                + "<textarea name='resumeText' rows='5'>" + escape(user.getResumeText()) + "</textarea>"
+
+                + "<br><button type='submit' class='btn-primary'>⚡ Run AI Diagnostic & ATS Scan</button>"
+                + "</form>"
+                + "</div>"
+                + "</div></body></html>";
+    }
+
+    static String profilePage(User user) {
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+                + "<title>Career Profile - AI Career Accelerator</title>" + STYLE + "</head><body>"
+                + renderNavbar("profile", user)
+                + "<div class='container'>"
+                + "<div class='card'>"
+                + "<h3>👤 User Career Profile</h3>"
+                + "<p class='subtitle'>Manage your target role, experience level, and default stored resume text.</p>"
+                + "<form method='POST' action='/profile'>"
+                + "<label>Full Name</label><input type='text' name='name' value='" + escape(user.getName()) + "'>"
+                + "<label>Email Address</label><input type='email' name='email' value='" + escape(user.getEmail()) + "'>"
+                + "<label>Target Career Role</label><input type='text' name='targetRole' value='" + escape(user.getTargetRole()) + "'>"
+                + "<label>Experience Level</label><input type='text' name='experienceYears' value='" + escape(user.getExperienceYears()) + "'>"
+                + "<label>Education / Degree</label><input type='text' name='education' value='" + escape(user.getEducation()) + "'>"
+                + "<label>Master Resume Text</label><textarea name='resumeText' rows='8'>" + escape(user.getResumeText()) + "</textarea>"
+                + "<br><button type='submit' class='btn-primary'>💾 Save Profile Updates</button>"
+                + "</form>"
+                + "</div></div></body></html>";
+    }
+
+    static String historyPage(User user) {
+        StringBuilder items = new StringBuilder();
+        if (user.getScanHistory().isEmpty()) {
+            items.append("<p style='color:var(--muted);'>No previous scans found. Run your first scan from the dashboard!</p>");
+        } else {
+            for (ScanResult scan : user.getScanHistory()) {
+                items.append("<div class='history-card'>")
+                     .append("<div><b>").append(escape(scan.getJobTitle())).append("</b>")
+                     .append("<div style='font-size:12px; color:var(--muted);'>Scanned on ").append(scan.getTimestamp()).append("</div></div>")
+                     .append("<div><b style='color:var(--good); font-size:18px;'>").append(String.format("%.1f%%", scan.getMatchScore())).append("</b>")
+                     .append(" <span style='font-size:13px; color:var(--muted);'>(").append(scan.getAtsScore()).append("/100 ATS)</span></div>")
+                     .append("</div>");
+            }
+        }
+
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+                + "<title>Scan History - AI Career Accelerator</title>" + STYLE + "</head><body>"
+                + renderNavbar("history", user)
+                + "<div class='container'>"
+                + "<div class='card'>"
+                + "<h3>📈 Historical Scans & Improvement Tracker</h3>"
+                + "<p class='subtitle'>Track how your ATS and match scores improve over time as you apply recommendations.</p>"
+                + items
+                + "</div></div></body></html>";
+    }
+
+    static String scanResultPage(User user, ScanResult scan) {
+        StringBuilder strengthsHtml = new StringBuilder();
+        for (String s : scan.getStrengths()) {
+            strengthsHtml.append("<div style='margin-bottom:6px;'>✔ ").append(escape(s)).append("</div>");
+        }
+
+        StringBuilder weaknessesHtml = new StringBuilder();
+        for (String w : scan.getWeaknesses()) {
+            weaknessesHtml.append("<div style='margin-bottom:6px; color:#fca5a5;'>⚠️ ").append(escape(w)).append("</div>");
+        }
+
+        StringBuilder roadmapHtml = new StringBuilder("<div class='timeline'>");
+        int step = 1;
+        for (String r : scan.getImprovementRoadmap()) {
+            roadmapHtml.append("<div class='timeline-item'>")
+                       .append("<div class='timeline-title'>Step ").append(step++).append("</div>")
+                       .append("<div class='timeline-desc'>").append(escape(r)).append("</div>")
+                       .append("</div>");
+        }
+        roadmapHtml.append("</div>");
+
+        return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
+                + "<title>Diagnostic Report - AI Career Accelerator</title>" + STYLE + "</head><body>"
+                + renderNavbar("dashboard", user)
+                + "<div class='container'>"
+                + "<a class='back' href='/'>&larr; Back to Dashboard</a>"
+
+                + "<div class='hero-header' style='text-align:left;'>"
+                + "<h1>Diagnostic Report: " + escape(scan.getJobTitle()) + "</h1>"
+                + "<p class='subtitle'>Scan completed on " + scan.getTimestamp() + " • Candidate: " + escape(user.getName()) + "</p>"
+                + "</div>"
+
+                + "<div class='grid-2'>"
+                + "<div class='card score-gauge'><div class='score-num " + (scan.getMatchScore() >= 40 ? "good" : "warn") + "'>" + String.format("%.1f%%", scan.getMatchScore()) + "</div><div class='score-label'>Resume Match Score</div></div>"
+                + "<div class='card score-gauge'><div class='score-num " + (scan.getAtsScore() >= 75 ? "good" : "warn") + "'>" + scan.getAtsScore() + "/100</div><div class='score-label'>ATS Optimization Score</div></div>"
+                + "</div>"
+
+                + "<div class='grid-2'>"
+                + "<div class='card'>"
+                + "<h3>🎯 Matching Skills</h3>"
+                + tagList(scan.getMatchingSkills(), "matched")
+                + "</div>"
+                + "<div class='card'>"
+                + "<h3>⚠️ Missing Skills Gaps</h3>"
+                + tagList(scan.getMissingSkills(), "missing")
+                + "</div>"
+                + "</div>"
+
+                + "<div class='grid-2'>"
+                + "<div class='card'>"
+                + "<h3>💪 Detected Strengths</h3>"
+                + strengthsHtml
+                + "<hr style='border:none; border-top:1px solid var(--border); margin:15px 0;'>"
+                + "<b>Experience Match:</b> " + escape(scan.getExperienceMatch())
+                + "</div>"
+                + "<div class='card'>"
+                + "<h3>🚩 Identified Red Flags / Weaknesses</h3>"
+                + weaknessesHtml
+                + "<hr style='border:none; border-top:1px solid var(--border); margin:15px 0;'>"
+                + "<b>Education Match:</b> " + escape(scan.getEducationMatch())
+                + "</div>"
+                + "</div>"
+
+                + "<div class='card'>"
+                + "<h3>🗺️ Personalized 4-Step Skill Improvement Roadmap</h3>"
+                + "<p class='subtitle'>Follow these action steps to boost your ATS match score above 85%:</p>"
+                + roadmapHtml
+                + "</div>"
+
+                + "</div></body></html>";
     }
 
     static String errorPage(String message) {
         return "<!DOCTYPE html><html><head><meta charset='UTF-8'>"
                 + "<title>Error</title>" + STYLE + "</head><body>"
                 + "<div class='container'>"
-                + "<a class='back' href='/'>&larr; Back to form</a>"
+                + "<a class='back' href='/'>&larr; Back to Dashboard</a>"
                 + "<div class='error'>" + escape(message) + "</div>"
                 + "</div></body></html>";
     }
@@ -831,7 +860,7 @@ class HtmlPages {
 }
 
 // ============================================================
-//  MODELS & NLP ENGINE
+//  CANDIDATE & ENGINE LOGIC
 // ============================================================
 
 class Candidate {
@@ -850,88 +879,78 @@ class Candidate {
     public String getResumeText() { return resumeText; }
 }
 
-class JobPosting {
-    private final String title;
-    private final String description;
+class AIAcceleratorEngine {
 
-    public JobPosting(String title, String description) {
-        this.title = title;
-        this.description = description;
+    public ScanResult analyzeResume(User user, String jobTitle, String jobDescription, String resumeText) {
+        List<String> jobTokens = TextPreprocessor.tokenize(jobDescription);
+        List<String> resumeTokens = TextPreprocessor.tokenize(resumeText);
+
+        TfIdfVectorizer vectorizer = new TfIdfVectorizer();
+        vectorizer.fit(List.of(jobTokens, resumeTokens));
+
+        Map<String, Double> jobVector = vectorizer.vectorize(jobTokens);
+        Map<String, Double> resumeVector = vectorizer.vectorize(resumeTokens);
+
+        double matchScore = CosineSimilarity.compute(jobVector, resumeVector);
+        Set<String> resumeSet = new HashSet<>(resumeTokens);
+
+        List<String> importantJobTerms = extractTopSkills(jobDescription);
+        List<String> matched = new ArrayList<>();
+        List<String> missing = new ArrayList<>();
+
+        for (String term : importantJobTerms) {
+            if (resumeSet.contains(term)) matched.add(term);
+            else missing.add(term);
+        }
+
+        // Calculate ATS Optimization Score (0-100)
+        int atsScore = 60;
+        if (resumeText.length() > 200) atsScore += 15;
+        if (!matched.isEmpty()) atsScore += Math.min(20, matched.size() * 5);
+        if (resumeText.toLowerCase().contains("education") || resumeText.toLowerCase().contains("degree")) atsScore += 5;
+        atsScore = Math.min(98, atsScore);
+
+        // Strengths & Weaknesses
+        List<String> strengths = new ArrayList<>();
+        if (!matched.isEmpty()) strengths.add("Strong keywords alignment for " + String.join(", ", matched.subList(0, Math.min(3, matched.size()))));
+        if (resumeText.toLowerCase().contains("experience") || resumeText.toLowerCase().contains("years")) strengths.add("Clear professional history and experience section.");
+        if (resumeText.toLowerCase().contains("microservices") || resumeText.toLowerCase().contains("api")) strengths.add("Demonstrated modern architectural & API skills.");
+
+        List<String> weaknesses = new ArrayList<>();
+        if (!missing.isEmpty()) weaknesses.add("Missing key target job skills: " + String.join(", ", missing.subList(0, Math.min(3, missing.size()))));
+        if (!resumeText.toLowerCase().contains("metrics") && !resumeText.toLowerCase().contains("%")) weaknesses.add("Lacks quantifiable impact metrics or percentage achievements.");
+
+        String experienceMatch = (resumeText.toLowerCase().contains("4 years") || resumeText.toLowerCase().contains("5 years") || resumeText.toLowerCase().contains("senior")) ?
+                "High Match (4+ Years Seniority detected)" : "Moderate Match (Entry/Mid level alignment)";
+
+        String educationMatch = (resumeText.toLowerCase().contains("b.s") || resumeText.toLowerCase().contains("computer science") || resumeText.toLowerCase().contains("degree")) ?
+                "100% Qualified (Degree/CS background detected)" : "Relevant Field Alignment";
+
+        List<String> recommendedSkills = missing.stream().limit(4).collect(Collectors.toList());
+
+        List<String> roadmap = List.of(
+                "Incorporate key missing terms (" + (missing.isEmpty() ? "Docker, Kafka" : String.join(", ", missing.subList(0, Math.min(2, missing.size())))) + ") into your work experience bullet points.",
+                "Quantify achievements in your resume (e.g. 'Optimized REST API response times by 35%').",
+                "Complete a hands-on project utilizing " + (missing.isEmpty() ? "AWS & Kubernetes" : missing.get(0)) + " and add it to your GitHub portfolio.",
+                "Re-run this scan to verify your ATS score reaches 85%+ before submitting your job application!"
+        );
+
+        String timestamp = new SimpleDateFormat("MMM dd, yyyy - HH:mm").format(new Date());
+        String scanId = "SCAN-" + System.currentTimeMillis();
+
+        return new ScanResult(scanId, timestamp, jobTitle, jobDescription, matchScore, atsScore,
+                matched, missing, strengths, weaknesses, experienceMatch, educationMatch, recommendedSkills, roadmap);
     }
 
-    public String getTitle() { return title; }
-    public String getDescription() { return description; }
-}
-
-class JobRecommendation {
-    private final String roleTitle;
-    private final String roleSummary;
-    private final double score;
-    private final List<String> matchedSkills;
-    private final List<String> missingSkills;
-    private final String careerTip;
-
-    public JobRecommendation(String roleTitle, String roleSummary, double score,
-                             List<String> matchedSkills, List<String> missingSkills, String careerTip) {
-        this.roleTitle = roleTitle;
-        this.roleSummary = roleSummary;
-        this.score = score;
-        this.matchedSkills = matchedSkills;
-        this.missingSkills = missingSkills;
-        this.careerTip = careerTip;
-    }
-
-    public String getRoleTitle() { return roleTitle; }
-    public String getRoleSummary() { return roleSummary; }
-    public double getScore() { return score; }
-    public List<String> getMatchedSkills() { return matchedSkills; }
-    public List<String> getMissingSkills() { return missingSkills; }
-    public String getCareerTip() { return careerTip; }
-}
-
-class MatchResult implements Comparable<MatchResult> {
-    private final Candidate candidate;
-    private final double score;
-    private final List<String> matchedSkills;
-    private final List<String> missingSkills;
-    private final String tierLabel;
-    private final String tierClass;
-    private final String backendFit;
-    private final String cloudFit;
-    private final String databaseFit;
-    private final String interviewProbe;
-
-    public MatchResult(Candidate candidate, double score,
-                        List<String> matchedSkills, List<String> missingSkills,
-                        String tierLabel, String tierClass,
-                        String backendFit, String cloudFit, String databaseFit,
-                        String interviewProbe) {
-        this.candidate = candidate;
-        this.score = score;
-        this.matchedSkills = matchedSkills;
-        this.missingSkills = missingSkills;
-        this.tierLabel = tierLabel;
-        this.tierClass = tierClass;
-        this.backendFit = backendFit;
-        this.cloudFit = cloudFit;
-        this.databaseFit = databaseFit;
-        this.interviewProbe = interviewProbe;
-    }
-
-    public Candidate getCandidate() { return candidate; }
-    public double getScorePercent() { return Math.round(score * 10000.0) / 100.0; }
-    public List<String> getMatchedSkills() { return matchedSkills; }
-    public List<String> getMissingSkills() { return missingSkills; }
-    public String getTierLabel() { return tierLabel; }
-    public String getTierClass() { return tierClass; }
-    public String getBackendFit() { return backendFit; }
-    public String getCloudFit() { return cloudFit; }
-    public String getDatabaseFit() { return databaseFit; }
-    public String getInterviewProbe() { return interviewProbe; }
-
-    @Override
-    public int compareTo(MatchResult other) {
-        return Double.compare(other.score, this.score);
+    private List<String> extractTopSkills(String jobDesc) {
+        List<String> tokens = TextPreprocessor.tokenize(jobDesc);
+        Map<String, Integer> counts = new HashMap<>();
+        for (String t : tokens) counts.merge(t, 1, Integer::sum);
+        return counts.entrySet().stream()
+                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
+                .limit(8)
+                .map(Map.Entry::getKey)
+                .collect(Collectors.toList());
     }
 }
 
@@ -978,13 +997,11 @@ class TfIdfVectorizer {
         }
     }
 
-    public Map<String, Double> vectorize(List<String> tokens, List<String> prioritySkills) {
+    public Map<String, Double> vectorize(List<String> tokens) {
         Map<String, Double> vector = new HashMap<>();
         if (tokens.isEmpty()) return vector;
         Map<String, Integer> rawCounts = new HashMap<>();
         for (String term : tokens) rawCounts.merge(term, 1, Integer::sum);
-
-        Set<String> prioritySet = prioritySkills.stream().map(String::toLowerCase).collect(Collectors.toSet());
 
         int docLength = tokens.size();
         for (Map.Entry<String, Integer> entry : rawCounts.entrySet()) {
@@ -992,9 +1009,7 @@ class TfIdfVectorizer {
             double tf = entry.getValue() / (double) docLength;
             int df = documentFrequency.getOrDefault(term, 0);
             double idf = Math.log((totalDocuments + 1) / (double) (df + 1)) + 1.0;
-            
-            double weightMultiplier = prioritySet.contains(term) ? 2.0 : 1.0;
-            vector.put(term, tf * idf * weightMultiplier);
+            vector.put(term, tf * idf);
         }
         return vector;
     }
@@ -1014,155 +1029,5 @@ class CosineSimilarity {
         double sum = 0;
         for (double w : v.values()) sum += w * w;
         return Math.sqrt(sum);
-    }
-}
-
-class IndustryRoleCatalog {
-    public static class RoleSpec {
-        public final String title;
-        public final String summary;
-        public final String description;
-
-        public RoleSpec(String title, String summary, String description) {
-            this.title = title;
-            this.summary = summary;
-            this.description = description;
-        }
-    }
-
-    public static final List<RoleSpec> ROLES = List.of(
-        new RoleSpec("Senior Backend Java Engineer",
-                     "Designing enterprise REST APIs, microservices, PostgreSQL databases, and high-throughput backend services.",
-                     "Java Spring Boot microservices REST API PostgreSQL Docker Kubernetes AWS Kafka Jenkins JUnit"),
-        new RoleSpec("Cloud & DevOps Infrastructure Specialist",
-                     "Automating CI/CD pipelines, container orchestration, Kubernetes deployment, and cloud infrastructure.",
-                     "Docker Kubernetes AWS Jenkins Kafka CI/CD DevOps Linux Infrastructure Cloud Terraform"),
-        new RoleSpec("Full Stack Web Developer",
-                     "Building responsive frontends in React/JS and integrating with backend REST microservices.",
-                     "Java React JavaScript HTML CSS REST API TypeScript Node Next.js SQL Git"),
-        new RoleSpec("Data Engineer & Analytics Specialist",
-                     "Building data pipelines, SQL transformations, dashboards, and analytical reporting.",
-                     "Python SQL PostgreSQL Pandas Data Visualization Dashboards Machine Learning Spark Hadoop ETL"),
-        new RoleSpec("Enterprise Java Application Architect",
-                     "Architecting legacy and cloud enterprise Java systems, ORM databases, and high-availability frameworks.",
-                     "Java Spring Framework Hibernate MySQL Enterprise Microservices Architecture Design Patterns AWS")
-    );
-}
-
-class ResumeMatcherEngine {
-    private final TfIdfVectorizer vectorizer = new TfIdfVectorizer();
-
-    public List<String> extractTopSkills(String jobDesc) {
-        List<String> tokens = TextPreprocessor.tokenize(jobDesc);
-        Map<String, Integer> counts = new HashMap<>();
-        for (String t : tokens) counts.merge(t, 1, Integer::sum);
-        return counts.entrySet().stream()
-                .sorted((a, b) -> Integer.compare(b.getValue(), a.getValue()))
-                .limit(8)
-                .map(Map.Entry::getKey)
-                .collect(Collectors.toList());
-    }
-
-    public List<MatchResult> rankCandidates(JobPosting job, List<Candidate> candidates, List<String> prioritySkills) {
-        List<String> jobTokens = TextPreprocessor.tokenize(job.getDescription());
-        Map<Candidate, List<String>> candidateTokens = new LinkedHashMap<>();
-        for (Candidate c : candidates) {
-            candidateTokens.put(c, TextPreprocessor.tokenize(c.getResumeText()));
-        }
-
-        List<List<String>> corpus = new ArrayList<>();
-        corpus.add(jobTokens);
-        corpus.addAll(candidateTokens.values());
-        vectorizer.fit(corpus);
-
-        Map<String, Double> jobVector = vectorizer.vectorize(jobTokens, prioritySkills);
-        List<String> importantJobTerms = extractTopSkills(job.getDescription());
-
-        List<MatchResult> results = new ArrayList<>();
-        for (Map.Entry<Candidate, List<String>> entry : candidateTokens.entrySet()) {
-            Candidate c = entry.getKey();
-            List<String> tokens = entry.getValue();
-
-            Map<String, Double> resumeVector = vectorizer.vectorize(tokens, prioritySkills);
-            double score = CosineSimilarity.compute(jobVector, resumeVector);
-            Set<String> termSet = new HashSet<>(tokens);
-
-            List<String> matched = new ArrayList<>();
-            List<String> missing = new ArrayList<>();
-            for (String term : importantJobTerms) {
-                if (termSet.contains(term)) matched.add(term);
-                else missing.add(term);
-            }
-
-            double pct = Math.round(score * 10000.0) / 100.0;
-            String tierLabel = pct >= 35 ? "⭐ Top Contender" : pct >= 20 ? "👍 Strong Match" : "💡 Growth Candidate";
-            String tierClass = pct >= 35 ? "top" : pct >= 20 ? "strong" : "low";
-
-            String lower = c.getResumeText().toLowerCase();
-            String backendFit = (lower.contains("java") || lower.contains("spring") || lower.contains("api")) ? "High" : "Moderate";
-            String cloudFit = (lower.contains("aws") || lower.contains("docker") || lower.contains("kubernetes")) ? "High" : "Basic";
-            String databaseFit = (lower.contains("sql") || lower.contains("postgres") || lower.contains("mysql")) ? "High" : "Basic";
-
-            String probe = generateInterviewProbe(c.getName(), matched, missing);
-
-            results.add(new MatchResult(c, score, matched, missing, tierLabel, tierClass, backendFit, cloudFit, databaseFit, probe));
-        }
-
-        Collections.sort(results);
-        return results;
-    }
-
-    public List<JobRecommendation> recommendJobsForCandidate(Candidate candidate) {
-        List<String> resumeTokens = TextPreprocessor.tokenize(candidate.getResumeText());
-        Set<String> resumeTermSet = new HashSet<>(resumeTokens);
-
-        List<List<String>> corpus = new ArrayList<>();
-        corpus.add(resumeTokens);
-        for (IndustryRoleCatalog.RoleSpec spec : IndustryRoleCatalog.ROLES) {
-            corpus.add(TextPreprocessor.tokenize(spec.description));
-        }
-
-        TfIdfVectorizer recVectorizer = new TfIdfVectorizer();
-        recVectorizer.fit(corpus);
-        Map<String, Double> resumeVector = recVectorizer.vectorize(resumeTokens, List.of());
-
-        List<JobRecommendation> recs = new ArrayList<>();
-        for (IndustryRoleCatalog.RoleSpec spec : IndustryRoleCatalog.ROLES) {
-            List<String> roleTokens = TextPreprocessor.tokenize(spec.description);
-            Map<String, Double> roleVector = recVectorizer.vectorize(roleTokens, List.of());
-
-            double sim = CosineSimilarity.compute(resumeVector, roleVector);
-
-            List<String> matched = new ArrayList<>();
-            List<String> missing = new ArrayList<>();
-            for (String t : roleTokens) {
-                if (resumeTermSet.contains(t)) matched.add(t);
-                else missing.add(t);
-            }
-
-            String tip = missing.isEmpty() ? "Excellent skill match! Target Senior positions." :
-                    "Acquiring skills in [" + String.join(", ", missing.subList(0, Math.min(2, missing.size()))) + "] will boost your qualification for " + spec.title + " roles!";
-
-            recs.add(new JobRecommendation(spec.title, spec.summary, sim, matched, missing, tip));
-        }
-
-        recs.sort((a, b) -> Double.compare(b.getScore(), a.getScore()));
-        return recs;
-    }
-
-    private String generateInterviewProbe(String name, List<String> matched, List<String> missing) {
-        StringBuilder sb = new StringBuilder();
-        if (!matched.isEmpty()) {
-            sb.append("Deep-Dive Question: \"Can you explain your architectural design decisions when implementing ")
-              .append(matched.get(0)).append(" in your recent production projects?\"\n");
-        }
-        if (!missing.isEmpty()) {
-            sb.append("Skill-Gap Verification: \"This role relies heavily on ")
-              .append(missing.get(0)).append(". What is your experience or strategy for adapting to ")
-              .append(missing.get(0)).append(" in high-scale environments?\"");
-        } else {
-            sb.append("Solid alignment across core job skills! Ask about complex edge cases and system performance optimizations.");
-        }
-        return sb.toString();
     }
 }
